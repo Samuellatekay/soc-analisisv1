@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 .env
+secrets/
+infra/config/connectors.json
 data/*.db*
 node_modules/
 .pytest_cache/

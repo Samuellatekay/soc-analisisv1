@@ -31,69 +31,145 @@ docker compose -f infra/docker-compose.yml --env-file .env run --rm --no-deps \
 
 Smoke test membuat index/dokumen sementara di Elasticsearch lalu menghapus index tersebut; di Neo4j ia membuat node sementara untuk menguji skema `Technique`/`Tactic`, query Cypher retriever, freshness, dan isolasi tenant, lalu membersihkannya. Hanya jalankan pada staging yang diizinkan. Tambahkan `ollama,opencti` setelah URL, model, dan token yang diperlukan sudah dikonfigurasi. Endpoint kosong akan dilaporkan sebagai `SKIP`, sedangkan konfigurasi ada tetapi gagal akan membuat tes gagal. Jangan menaruh token OpenCTI di command line atau Git; gunakan secret file.
 
-Stack penuh (PostgreSQL, Redis Streams, Elasticsearch, Neo4j, worker terpisah): `cp .env.example .env && docker compose -f infra/docker-compose.yml --env-file .env up --build` — lihat "Status verifikasi".
+Untuk menjalankan stack penuh dengan Docker Compose, ikuti [panduan instalasi](#panduan-instalasi-pilih-salah-satu-dari-3-mode) berikut.
 
-## Instalasi menurut mode operasi
+## Panduan instalasi: pilih salah satu dari 3 mode
 
-Perintah PowerShell di bawah ditujukan untuk Windows. Mode **Single** menjalankan API dan worker dalam satu proses untuk development/POC. Mode **Orkestrasi** memisahkan API, broker, database, dan worker. **Master bukan mode pemrosesan alert**: ia adalah control plane opsional untuk memantau cluster dan mengirim kebijakan; alert tetap diproses oleh cluster.
+Perintah di bawah ditujukan untuk Ubuntu/Linux dan dijalankan dari folder utama repository.
 
-### Single (lokal, tanpa Docker)
+| Mode | Cocok untuk | Yang perlu disiapkan |
+|---|---|---|
+| **1. Single** | Belajar, demo, dan development di satu komputer | Python 3.12+, Node.js 18+, npm |
+| **2. Orkestrasi** | Menjalankan aplikasi, database, antrean, dan worker di satu host | Docker Engine dan Docker Compose v2 |
+| **3. Master** | Memantau beberapa cluster SOC dan mengelola kebijakan | Cluster SOC yang sudah berjalan; Master dipasang terpisah |
 
-Di Ubuntu/Linux, cara tercepat adalah `make setup` lalu `make dev` dari root repo. Script `scripts/install.sh` membuat `.venv`, memasang dependency backend, menjalankan `npm ci`, dan membangun UI; bila kebutuhan dasar belum terpasang, script menjelaskan apa yang kurang.
+### 1. Single — paling mudah, tanpa Docker
 
-Di Windows, pasang Python 3.12+, Node.js 18+, dan npm, lalu dari root repo:
+Mode ini menjalankan API, worker, dan UI bersama-sama. Data disimpan di SQLite lokal. Cocok untuk mencoba aplikasi, bukan untuk high availability atau produksi.
 
-   ```powershell
-   py -3.12 -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   python -m pip install -r requirements-dev.txt
-   cd apps\web
-   npm ci
-   npm run build
-   cd ..\..
+1. Pastikan Python 3.12+, Node.js 18+, dan npm tersedia.
+2. Siapkan aplikasi:
+
+   ```bash
+   make setup
    ```
 
-2. Jalankan aplikasi:
+3. Jalankan aplikasi:
 
-   ```powershell
-   python run_dev.py
+   ```bash
+   make dev
    ```
 
-3. Buka `http://localhost:8000`, lalu login dengan token development `dev-analyst-token` (admin: `dev-admin-token`). Server bind ke `0.0.0.0`, sehingga dari perangkat lain di jaringan yang sama gunakan `http://<IP-LAN-komputer>:8000`. Database SQLite dan worker tertanam digunakan secara otomatis. Untuk berhenti, tekan `Ctrl+C`.
+4. Buka `http://localhost:8000`. Login demo: `dev-analyst-token` (admin: `dev-admin-token`).
+5. Untuk berhenti, tekan `Ctrl+C`.
 
-Mode ini untuk development/POC, bukan deployment HA atau produksi. Pastikan firewall hanya membuka port yang diperlukan; jangan gunakan token development atau memaparkan server ini langsung ke internet. Ganti token dan gunakan HTTPS, autentikasi, serta secret yang sesuai sebelum akses jaringan yang lebih luas.
+Untuk membuat data contoh, buka terminal lain di folder repository:
 
-Untuk UI hot-reload Vite, jalankan `npm run dev -- --host 0.0.0.0` dari `apps/web`; akses dari perangkat lain melalui `http://<IP-LAN-komputer>:5173`. Proxy API mengarah ke port 8000.
+```bash
+.venv/bin/python scripts/generate_demo_data.py --api http://localhost:8000
+```
 
-### Orkestrasi (Docker Compose, satu host)
+Token di atas hanya untuk demo lokal. Jangan gunakan token development atau buka aplikasi langsung ke internet.
 
-1. Pasang Docker Desktop dengan Docker Compose v2 dan pastikan Docker berjalan.
-2. Dari root repo, siapkan konfigurasi:
+### 2. Orkestrasi — Docker Compose di satu host
 
-   ```powershell
-   Copy-Item .env.example .env
-   Copy-Item infra\config\connectors.example.json infra\config\connectors.json
+Mode ini menjalankan API, UI, database, antrean, dan worker sebagai layanan terpisah. Ini tetap satu host, bukan konfigurasi high availability.
+
+1. Pasang Docker Engine dan plugin Docker Compose v2. Pastikan akun Anda bisa menjalankan `docker compose`.
+2. Buat file konfigurasi dari folder repository:
+
+   ```bash
+   cp -n .env.example .env
+   test -e infra/config/connectors.json || cp infra/config/connectors.example.json infra/config/connectors.json
    ```
 
-3. Edit `.env`: ganti password development, token API, dan ingest key; isi konfigurasi secret yang diperlukan. Jangan gunakan nilai contoh untuk deployment yang dapat diakses pihak lain.
-4. Bangun dan jalankan stack:
+3. Edit `.env`: ganti password, token API, dan ingest key contoh. Jangan commit `.env` atau secret ke Git.
+4. Bangun dan jalankan seluruh layanan:
 
-   ```powershell
-   docker compose -f infra\docker-compose.yml --env-file .env up --build
+   ```bash
+   docker compose -f infra/docker-compose.yml --env-file .env up --build -d
    ```
 
-   UI tersedia di `http://localhost:8080`. Log bisa dilihat dengan `docker compose -f infra\docker-compose.yml --env-file .env logs -f`.
-5. Untuk menghentikan stack tanpa menghapus data volume:
+5. Pastikan layanan berjalan:
 
-   ```powershell
-   docker compose -f infra\docker-compose.yml --env-file .env down
+   ```bash
+   docker compose -f infra/docker-compose.yml --env-file .env ps
    ```
 
-Compose menjalankan PostgreSQL, Redis Streams, Elasticsearch, Neo4j, API, engine, RAG worker, indexer, connector, KB sync, backup, dan web. Untuk menambah worker pada host yang sama, gunakan misalnya `docker compose -f infra\docker-compose.yml --env-file .env up --build --scale engine=2 --scale rag_worker=2`. Ini tetap **single-node development**, bukan HA; jangan gunakan `down -v` kecuali memang ingin menghapus data. Ollama tidak disertakan; tanpa konfigurasi Ollama, RAG menghasilkan analisis template.
+   Buka UI di `http://localhost:8080`. Untuk melihat log, jalankan `docker compose -f infra/docker-compose.yml --env-file .env logs -f`.
+6. Untuk menghentikan layanan tanpa menghapus data:
 
-### Master (control plane opsional)
+   ```bash
+   docker compose -f infra/docker-compose.yml --env-file .env down
+   ```
 
-Master dijalankan terpisah dari cluster SOC. Contoh berikut menjalankan Master dan satu cluster development secara lokal. Untuk penggunaan nyata, gunakan HTTPS, token unik, secret manager, dan database Master yang dipelihara; jangan mengekspos token atau private key di Git.
+Perintah `down` mempertahankan data volume. **Jangan gunakan `down -v`** kecuali memang ingin menghapus data. Ollama tidak otomatis dijalankan oleh Compose; RAG tetap dapat menggunakan analisis template bila Ollama belum dikonfigurasi.
+
+### 3. Master — pengelola cluster (opsional)
+
+Master bukan pengganti aplikasi SOC dan tidak memproses alert. Jalankan cluster SOC terlebih dahulu dengan mode Single atau Orkestrasi; Master dipasang terpisah untuk memantau cluster dan mengelola kebijakan. Contoh Linux di bawah menghubungkan Master development ke cluster Single lokal.
+
+#### Contoh lokal di Ubuntu/Linux
+
+1. Pastikan `make setup` sudah selesai dan cluster Single dapat dibuka di `http://localhost:8000`.
+2. Buat kunci Master:
+
+   ```bash
+   mkdir -p secrets/master
+   .venv/bin/python -m services.master.keys gen secrets/master
+   ```
+
+   Jaga `master_policy.key` sebagai rahasia. Salin hanya `master_policy.pub` ke cluster yang akan dikelola. Jangan commit folder `secrets/`.
+3. Buka terminal baru. Buat token admin acak:
+
+   ```bash
+   python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+   ```
+
+   Salin token yang ditampilkan sementara. Di terminal Master, tempel token saat diminta (input tidak ditampilkan), lalu jalankan:
+
+   ```bash
+   read -rsp 'Token admin Master: ' MASTER_ADMIN_TOKEN; echo
+   export MASTER_API_TOKENS="${MASTER_ADMIN_TOKEN}:admin"
+   export MASTER_SIGNING_KEY_FILE="$PWD/secrets/master/master_policy.key"
+   export TOK_C1='dev-admin-token'
+   .venv/bin/python -m uvicorn app.main:app --app-dir apps/master --host 127.0.0.1 --port 8100
+   ```
+
+   Biarkan terminal ini berjalan. Master development memakai SQLite lokal.
+4. Di terminal lain, masukkan token admin yang sama, lalu daftarkan cluster. `pull_token` hanya ditampilkan sekali; simpan token itu dengan aman:
+
+   ```bash
+   read -rsp 'Token admin Master: ' MASTER_ADMIN_TOKEN; echo
+   curl -sS -X POST http://127.0.0.1:8100/api/v1/clusters \
+     -H "Authorization: Bearer $MASTER_ADMIN_TOKEN" \
+     -H 'Content-Type: application/json' \
+     -d '{"id":"c1","name":"Cluster lokal","api_url":"http://127.0.0.1:8000","status_token_env":"TOK_C1","verify_tls":false}'
+   ```
+
+   `verify_tls:false` hanya untuk contoh lokal dengan HTTP. Gunakan HTTPS dan verifikasi TLS untuk cluster sungguhan.
+5. Hentikan cluster Single dengan `Ctrl+C`. Di terminal tempat Anda menjalankan cluster, masukkan `pull_token` yang diterima lalu jalankan kembali dalam mode terkelola:
+
+   ```bash
+   read -rsp 'Pull token cluster: ' MASTER_CLUSTER_TOKEN; echo
+   export MASTER_CLUSTER_TOKEN
+   MASTER_URL=http://127.0.0.1:8100 \
+   CLUSTER_ID=c1 \
+   MASTER_POLICY_PUBKEY_FILE="$PWD/secrets/master/master_policy.pub" \
+   make dev
+   ```
+
+Status cluster dapat diperiksa dengan token admin:
+
+```bash
+curl -H "Authorization: Bearer $MASTER_ADMIN_TOKEN" http://127.0.0.1:8100/api/v1/clusters
+```
+
+Untuk kebijakan, rollout, dan batas keamanan, lihat [`docs/MASTER.md`](docs/MASTER.md). Master development di atas hanya untuk lokal; deployment nyata memerlukan HTTPS, secret manager, dan database yang dipelihara. Jika Master tidak tersedia, cluster tetap bekerja dengan kebijakan terakhir yang diterima.
+
+#### Contoh di Windows (PowerShell)
+
+Master dijalankan terpisah dari cluster SOC. Untuk penggunaan nyata, gunakan HTTPS, token unik, secret manager, dan database Master yang dipelihara; jangan mengekspos token atau private key di Git.
 
 1. Siapkan environment dan buat pasangan kunci Ed25519 sekali saja:
 
