@@ -36,9 +36,11 @@ Perintah PowerShell di bawah ditujukan untuk Windows. Mode **Single** menjalanka
    python run_dev.py
    ```
 
-3. Buka `http://localhost:8000`, lalu login dengan token development `dev-analyst-token` (admin: `dev-admin-token`). Database SQLite dan worker tertanam digunakan secara otomatis. Untuk berhenti, tekan `Ctrl+C`.
+3. Buka `http://localhost:8000`, lalu login dengan token development `dev-analyst-token` (admin: `dev-admin-token`). Server bind ke `0.0.0.0`, sehingga dari perangkat lain di jaringan yang sama gunakan `http://<IP-LAN-komputer>:8000`. Database SQLite dan worker tertanam digunakan secara otomatis. Untuk berhenti, tekan `Ctrl+C`.
 
-Mode ini untuk development/POC, bukan deployment HA atau produksi. Ganti token development dan gunakan konfigurasi autentikasi/secret yang sesuai sebelum memaparkan layanan ke jaringan.
+Mode ini untuk development/POC, bukan deployment HA atau produksi. Pastikan firewall hanya membuka port yang diperlukan; jangan gunakan token development atau memaparkan server ini langsung ke internet. Ganti token dan gunakan HTTPS, autentikasi, serta secret yang sesuai sebelum akses jaringan yang lebih luas.
+
+Untuk UI hot-reload Vite, jalankan `npm run dev -- --host 0.0.0.0` dari `apps/web`; akses dari perangkat lain melalui `http://<IP-LAN-komputer>:5173`. Proxy API mengarah ke port 8000.
 
 ### Orkestrasi (Docker Compose, satu host)
 
