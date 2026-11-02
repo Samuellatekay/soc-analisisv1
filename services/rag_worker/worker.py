@@ -13,7 +13,7 @@ from services.common.db import session_scope
 from services.common.models import Analysis, Event, Outbox
 from services.common.util import sanitize, utcnow
 
-from .llm_client import OllamaClient
+from .llm_client import create_llm_client
 from .retrieval.graph import Doc, get_retriever
 
 log = logging.getLogger("rag_worker")
@@ -40,7 +40,7 @@ def build_user_prompt(ev: Event, docs: list[Doc]) -> str:
 
 
 def template_analysis(ev: Event, docs: list[Doc]) -> dict:
-    """Analisis deterministik (tanpa LLM) saat Ollama tidak dikonfigurasi. Selalu diberi label model 'template-v1'."""
+    """Analisis deterministik (tanpa provider LLM). Selalu diberi label model 'template-v1'."""
     sup = [{"claim": f"Skor risiko {ev.risk_score} ({ev.risk_level}); disposisi: {ev.disposition_reason}", "source": "event"}]
     ioc = (ev.integrity or {}).get("evidence", {}).get("ioc", {})
     if ioc.get("verdict"):
@@ -121,9 +121,10 @@ def process_one(s: Settings | None = None) -> bool:
         _finish(jid, nodocs)
         return True
     try:
-        if s.ollama_url and s.ollama_model:
-            out = OllamaClient(s.ollama_url, s.ollama_model, s.ollama_timeout).generate_json(_prompt(s), build_user_prompt(ev, docs))
-            model = s.ollama_model
+        client = create_llm_client(s)
+        if client:
+            out = client.generate_json(_prompt(s), build_user_prompt(ev, docs))
+            model = client.model
         else:
             out, model = template_analysis(ev, docs), "template-v1(no-llm)"
         out = validate_output(out, {"event"} | {d.source_id for d in docs})

@@ -31,6 +31,51 @@ docker compose -f infra/docker-compose.yml --env-file .env run --rm --no-deps \
 
 Smoke test membuat index/dokumen sementara di Elasticsearch lalu menghapus index tersebut; di Neo4j ia membuat node sementara untuk menguji skema `Technique`/`Tactic`, query Cypher retriever, freshness, dan isolasi tenant, lalu membersihkannya. Hanya jalankan pada staging yang diizinkan. Tambahkan `ollama,opencti` setelah URL, model, dan token yang diperlukan sudah dikonfigurasi. Endpoint kosong akan dilaporkan sebagai `SKIP`, sedangkan konfigurasi ada tetapi gagal akan membuat tes gagal. Jangan menaruh token OpenCTI di command line atau Git; gunakan secret file.
 
+### Memilih provider AI untuk analisis RAG
+
+Worker RAG mendukung **Ollama**, **Google Gemini API**, **OpenAI API**, dan layanan lain yang menyediakan endpoint chat kompatibel OpenAI. Pilih satu provider melalui `.env`; provider ini hanya membuat ringkasan/rekomendasi RAG. Skor risiko dan keputusan alert tetap ditentukan engine SOC.
+
+Atur variabel berikut di `.env`:
+
+| Provider | `LLM_PROVIDER` | Pengaturan yang diperlukan |
+|---|---|---|
+| Ollama lokal | `ollama` | `OLLAMA_URL`, `OLLAMA_MODEL` |
+| Google Gemini | `gemini` | `LLM_MODEL`, `LLM_API_KEY` |
+| OpenAI API | `openai` | `LLM_MODEL`, `LLM_API_KEY` |
+| Endpoint kompatibel OpenAI | `openai_compatible` | `LLM_MODEL`, `LLM_BASE_URL`; API key jika provider mewajibkannya |
+| Tanpa layanan AI | `none` | Tidak ada; aplikasi membuat analisis template |
+
+`LLM_PROVIDER=auto` adalah nilai bawaan untuk menjaga kompatibilitas: bila `OLLAMA_URL` dan `OLLAMA_MODEL` terisi, aplikasi memakai Ollama; jika tidak, aplikasi memakai analisis template tanpa menghubungi provider cloud.
+
+Contoh Gemini:
+
+```dotenv
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.5-flash
+LLM_API_KEY=isi_api_key_gemini_di_file_.env
+```
+
+Contoh OpenAI:
+
+```dotenv
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4.1-mini
+LLM_API_KEY=isi_api_key_openai_di_file_.env
+```
+
+Contoh endpoint kompatibel OpenAI:
+
+```dotenv
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://provider.example/v1
+LLM_MODEL=nama-model-dari-provider
+LLM_API_KEY=isi_api_key_provider_di_file_.env
+```
+
+Setelah mengubah `.env`, restart aplikasi Single dengan `make dev`, atau buat ulang container Compose dengan `docker compose -f infra/docker-compose.yml --env-file .env up --build -d`. Untuk key yang tidak boleh ditulis langsung di `.env`, gunakan `LLM_API_KEY_FILE` dan pastikan file tersebut tersedia di proses worker. Di Compose, mount file itu ke service `rag_worker` dan isi `LLM_API_KEY_FILE` dengan path di dalam container. File `.env` tidak boleh dimasukkan ke Git.
+
+**Privasi dan biaya:** Gemini, OpenAI, dan provider cloud kompatibel akan menerima data alert serta bukti RAG yang dikirim untuk dianalisis, dan penggunaan API dapat dikenai biaya. Pastikan pengiriman data diizinkan organisasi Anda, periksa kebijakan retensi/data provider, dan jangan kirim data sensitif bila belum disetujui. Gunakan Ollama jika analisis harus tetap di lingkungan sendiri.
+
 Untuk menjalankan stack penuh dengan Docker Compose, ikuti [panduan instalasi](#panduan-instalasi-pilih-salah-satu-dari-3-mode) berikut.
 
 ## Panduan instalasi: pilih salah satu dari 3 mode
@@ -281,7 +326,7 @@ Sesuai rancangan spesifikasi. Penyimpangan kecil yang disengaja: `services/commo
 | UI React | Type-check + build lolos; tampilan belum diuji visual lintas peramban |
 | **PostgreSQL 16 + Redis (nyata)** | **Diuji**: seluruh suite (145 tes), migrasi SQL, `pg_dump`/`pg_restore`, Redis Streams multi-proses, uji `kill -9` worker, DUMP/RESTORE Redis. Menemukan & memperbaiki bug konkurensi yang tidak muncul di SQLite (lihat `docs/LOADTEST.md`) |
 | Elasticsearch 8.14.3 + Neo4j 5 (Docker Compose staging) | **Diuji langsung** lewat Compose network: ES create mapping, upsert, refresh, search lalu cleanup; Cypher `Technique`/`Tactic`/`Playbook`, freshness, dan filter tenant lewat retriever lulus. Docker Compose `up` serta `run --no-deps` berhasil. Gunakan `scripts/staging_smoke.py` untuk mengulang tes pada staging Anda |
-| Ollama, OpenCTI GraphQL | **Belum diuji live**: konfigurasi endpoint saat tes kosong/tidak valid. Smoke test tersedia; OpenCTI provider kini gagal eksplisit untuk error GraphQL/response schema yang tidak sesuai, dan query membuang field yang tidak dipakai. Isi URL/model/token melalui secret file lalu jalankan `scripts/staging_smoke.py --only ollama,opencti` |
+| Ollama, Gemini, OpenAI, OpenAI-compatible, OpenCTI GraphQL | **Belum diuji live**: endpoint/API key belum dikonfigurasi untuk staging. Klien Gemini, OpenAI-compatible, dan Ollama diuji dengan respons tiruan; OpenCTI provider gagal eksplisit untuk error GraphQL/response schema yang tidak sesuai. Atur provider AI di `.env`, lalu validasi di akun staging sebelum penggunaan operasional. |
 | GLPI REST | Provider ada (`services/engine/enrichment/glpi.py`): initSession/search/killSession sesuai dokumentasi GLPI, pemetaan field berbasis konfigurasi (`infra/config/glpi.example.json`), nilai tak terpetakan diabaikan. Diuji dengan respons tiruan; **belum** dengan instance GLPI nyata. ID field kritikalitas/sensitivitas bersifat khas instalasi (lihat `--list-options`) |
 | Konektor Splunk ES, Sentinel, QRadar, CrowdStrike, SentinelOne, Defender, Cortex XDR, Elasticsearch/Wazuh, syslog CEF/LEEF | **Ada** (polling + checkpoint + retry/rate-limit + status di UI). Diuji dengan respons tiruan bentuk-dokumentasi dan CrowdStrike lewat HTTP nyata ke server tiruan. **Belum diuji terhadap tenant vendor sungguhan**; 5 dari 8 endpoint dicocokkan dengan dokumentasi, Splunk/QRadar/Elasticsearch ditulis dari pengetahuan dokumentasi. Rincian & batasan: `docs/CONNECTORS.md` |
 | BERT | Default `HeuristicReasoner` (leksikal, **bukan** BERT). Tersedia `scripts/export_training_data.py` + `scripts/train_bert.py` (split bebas-kebocoran per-triplet/kronologis, metrik, kalibrasi ambang yang melindungi alert asli — **diuji**). **Loop pelatihan dijalankan sungguhan** (torch 2.15/transformers 5.22) pada BERT mini acak: plumbing, penyimpanan, kalibrasi, dan pembacaan oleh engine diuji (menemukan & memperbaiki bug **label terbalik** + pengaman collapse). **Kualitas pada BERT-base dan data alert asli belum pernah diukur** (tanpa akses Hub/data). Label harus dari tiket/analis, bukan dari `disposition` sistem sendiri |
