@@ -1,0 +1,375 @@
+{
+ "version": "seed-2026.10",
+ "source": "seed",
+ "items": [
+  {
+   "item_id": "T1595",
+   "kind": "technique",
+   "data": {
+    "id": "T1595",
+    "name": "Active Scanning",
+    "tactics": [
+     "Reconnaissance"
+    ],
+    "description": "Aktor memindai infrastruktur untuk mengumpulkan informasi sebelum serangan."
+   }
+  },
+  {
+   "item_id": "T1046",
+   "kind": "technique",
+   "data": {
+    "id": "T1046",
+    "name": "Network Service Discovery",
+    "tactics": [
+     "Discovery"
+    ],
+    "description": "Pemindaian layanan/port pada host jaringan."
+   }
+  },
+  {
+   "item_id": "T1190",
+   "kind": "technique",
+   "data": {
+    "id": "T1190",
+    "name": "Exploit Public-Facing Application",
+    "tactics": [
+     "Initial Access"
+    ],
+    "description": "Eksploitasi kelemahan aplikasi yang terekspos ke internet."
+   }
+  },
+  {
+   "item_id": "T1566",
+   "kind": "technique",
+   "data": {
+    "id": "T1566",
+    "name": "Phishing",
+    "tactics": [
+     "Initial Access"
+    ],
+    "description": "Pengiriman pesan berbahaya untuk mendapatkan akses awal."
+   }
+  },
+  {
+   "item_id": "T1078",
+   "kind": "technique",
+   "data": {
+    "id": "T1078",
+    "name": "Valid Accounts",
+    "tactics": [
+     "Initial Access"
+    ],
+    "description": "Penggunaan kredensial sah yang dicuri/disalahgunakan."
+   }
+  },
+  {
+   "item_id": "T1110",
+   "kind": "technique",
+   "data": {
+    "id": "T1110",
+    "name": "Brute Force",
+    "tactics": [
+     "Credential Access"
+    ],
+    "description": "Percobaan menebak kredensial secara berulang."
+   }
+  },
+  {
+   "item_id": "T1110.001",
+   "kind": "technique",
+   "data": {
+    "id": "T1110.001",
+    "name": "Password Guessing",
+    "tactics": [
+     "Credential Access"
+    ],
+    "description": "Menebak kata sandi untuk akun tertentu."
+   }
+  },
+  {
+   "item_id": "T1110.003",
+   "kind": "technique",
+   "data": {
+    "id": "T1110.003",
+    "name": "Password Spraying",
+    "tactics": [
+     "Credential Access"
+    ],
+    "description": "Satu kata sandi umum dicoba pada banyak akun."
+   }
+  },
+  {
+   "item_id": "T1003",
+   "kind": "technique",
+   "data": {
+    "id": "T1003",
+    "name": "OS Credential Dumping",
+    "tactics": [
+     "Credential Access"
+    ],
+    "description": "Pengambilan kredensial dari memori/penyimpanan OS."
+   }
+  },
+  {
+   "item_id": "T1059",
+   "kind": "technique",
+   "data": {
+    "id": "T1059",
+    "name": "Command and Scripting Interpreter",
+    "tactics": [
+     "Execution"
+    ],
+    "description": "Eksekusi perintah melalui interpreter/shell."
+   }
+  },
+  {
+   "item_id": "T1203",
+   "kind": "technique",
+   "data": {
+    "id": "T1203",
+    "name": "Exploitation for Client Execution",
+    "tactics": [
+     "Execution"
+    ],
+    "description": "Eksekusi kode melalui eksploitasi klien."
+   }
+  },
+  {
+   "item_id": "T1547",
+   "kind": "technique",
+   "data": {
+    "id": "T1547",
+    "name": "Boot or Logon Autostart Execution",
+    "tactics": [
+     "Persistence"
+    ],
+    "description": "Persistensi melalui autostart saat boot/logon."
+   }
+  },
+  {
+   "item_id": "T1055",
+   "kind": "technique",
+   "data": {
+    "id": "T1055",
+    "name": "Process Injection",
+    "tactics": [
+     "Defense Evasion"
+    ],
+    "description": "Injeksi kode ke proses lain untuk menghindari deteksi."
+   }
+  },
+  {
+   "item_id": "T1027",
+   "kind": "technique",
+   "data": {
+    "id": "T1027",
+    "name": "Obfuscated Files or Information",
+    "tactics": [
+     "Defense Evasion"
+    ],
+    "description": "Penyamaran berkas/informasi untuk menghindari deteksi."
+   }
+  },
+  {
+   "item_id": "T1070",
+   "kind": "technique",
+   "data": {
+    "id": "T1070",
+    "name": "Indicator Removal",
+    "tactics": [
+     "Defense Evasion"
+    ],
+    "description": "Penghapusan jejak/indikator aktivitas."
+   }
+  },
+  {
+   "item_id": "T1021",
+   "kind": "technique",
+   "data": {
+    "id": "T1021",
+    "name": "Remote Services",
+    "tactics": [
+     "Lateral Movement"
+    ],
+    "description": "Perpindahan lateral melalui layanan remote."
+   }
+  },
+  {
+   "item_id": "T1021.001",
+   "kind": "technique",
+   "data": {
+    "id": "T1021.001",
+    "name": "Remote Desktop Protocol",
+    "tactics": [
+     "Lateral Movement"
+    ],
+    "description": "Perpindahan lateral melalui RDP."
+   }
+  },
+  {
+   "item_id": "T1021.004",
+   "kind": "technique",
+   "data": {
+    "id": "T1021.004",
+    "name": "SSH",
+    "tactics": [
+     "Lateral Movement"
+    ],
+    "description": "Perpindahan lateral melalui SSH."
+   }
+  },
+  {
+   "item_id": "T1071",
+   "kind": "technique",
+   "data": {
+    "id": "T1071",
+    "name": "Application Layer Protocol",
+    "tactics": [
+     "Command and Control"
+    ],
+    "description": "Komunikasi C2 melalui protokol lapisan aplikasi."
+   }
+  },
+  {
+   "item_id": "T1568.002",
+   "kind": "technique",
+   "data": {
+    "id": "T1568.002",
+    "name": "Domain Generation Algorithms",
+    "tactics": [
+     "Command and Control"
+    ],
+    "description": "Domain C2 dihasilkan algoritmik."
+   }
+  },
+  {
+   "item_id": "T1105",
+   "kind": "technique",
+   "data": {
+    "id": "T1105",
+    "name": "Ingress Tool Transfer",
+    "tactics": [
+     "Command and Control"
+    ],
+    "description": "Pengunduhan alat/malware ke lingkungan korban."
+   }
+  },
+  {
+   "item_id": "T1041",
+   "kind": "technique",
+   "data": {
+    "id": "T1041",
+    "name": "Exfiltration Over C2 Channel",
+    "tactics": [
+     "Exfiltration"
+    ],
+    "description": "Pencurian data melalui kanal C2."
+   }
+  },
+  {
+   "item_id": "T1048",
+   "kind": "technique",
+   "data": {
+    "id": "T1048",
+    "name": "Exfiltration Over Alternative Protocol",
+    "tactics": [
+     "Exfiltration"
+    ],
+    "description": "Pencurian data melalui protokol alternatif."
+   }
+  },
+  {
+   "item_id": "T1486",
+   "kind": "technique",
+   "data": {
+    "id": "T1486",
+    "name": "Data Encrypted for Impact",
+    "tactics": [
+     "Impact"
+    ],
+    "description": "Enkripsi data (ransomware) untuk mengganggu ketersediaan."
+   }
+  },
+  {
+   "item_id": "T1498",
+   "kind": "technique",
+   "data": {
+    "id": "T1498",
+    "name": "Network Denial of Service",
+    "tactics": [
+     "Impact"
+    ],
+    "description": "Serangan DoS pada jaringan."
+   }
+  },
+  {
+   "item_id": "T1499",
+   "kind": "technique",
+   "data": {
+    "id": "T1499",
+    "name": "Endpoint Denial of Service",
+    "tactics": [
+     "Impact"
+    ],
+    "description": "Serangan DoS pada endpoint/layanan."
+   }
+  },
+  {
+   "item_id": "playbook:brute_force",
+   "kind": "playbook",
+   "data": {
+    "id": "playbook:brute_force",
+    "attack_type": "brute_force",
+    "title": "Playbook brute force",
+    "steps": [
+     "Blokir/rate-limit IP sumber di firewall",
+     "Reset kredensial akun yang ditargetkan; paksa MFA",
+     "Periksa login sukses setelah rentetan gagal",
+     "Tinjau host target untuk persistensi"
+    ]
+   }
+  },
+  {
+   "item_id": "playbook:scanning",
+   "kind": "playbook",
+   "data": {
+    "id": "playbook:scanning",
+    "attack_type": "scanning",
+    "title": "Playbook scanning",
+    "steps": [
+     "Cocokkan sumber dengan daftar scanner internal terjadwal",
+     "Bila eksternal: pantau eskalasi ke eksploitasi",
+     "Tinjau port terbuka pada aset yang dipindai"
+    ]
+   }
+  },
+  {
+   "item_id": "playbook:web_attack",
+   "kind": "playbook",
+   "data": {
+    "id": "playbook:web_attack",
+    "attack_type": "web_attack",
+    "title": "Playbook web attack",
+    "steps": [
+     "Tinjau log WAF/web untuk respons 2xx pada payload",
+     "Terapkan patch/virtual patch untuk CVE terkait",
+     "Periksa webshell dan proses anomali di host"
+    ]
+   }
+  },
+  {
+   "item_id": "playbook:malware_comm",
+   "kind": "playbook",
+   "data": {
+    "id": "playbook:malware_comm",
+    "attack_type": "malware_comm",
+    "title": "Playbook malware comm",
+    "steps": [
+     "Isolasi host dari jaringan",
+     "Blokir IOC (domain/IP) di DNS/proxy/firewall",
+     "Ambil akuisisi forensik sebelum remediasi"
+    ]
+   }
+  }
+ ]
+}

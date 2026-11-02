@@ -1,0 +1,11 @@
+{
+  "version": "rules-v1",
+  "rules": {
+    "brute_force": {"technique": "T1110", "verify_steps": ["Periksa jumlah login gagal vs ambang", "Cek apakah ada login sukses setelah rentetan gagal", "Cek reputasi IP sumber", "Cek apakah akun/host target kritis"], "min_count_true": 50},
+    "scanning": {"technique": "T1595", "verify_steps": ["Cek apakah sumber adalah scanner internal terjadwal", "Cek reputasi IP sumber", "Cek apakah port yang dipindai memiliki vulnerability"], "min_count_true": 200},
+    "web_attack": {"technique": "T1190", "verify_steps": ["Cek apakah respons HTTP sukses (2xx) untuk payload", "Cek CVE terkait pada aset", "Cek apakah WAF memblokir"], "min_count_true": 1},
+    "malware_comm": {"technique": "T1071", "verify_steps": ["Cocokkan domain/IP dengan IOC", "Cek pola beaconing", "Cek umur registrasi domain"], "min_count_true": 1},
+    "policy_violation": {"technique": null, "verify_steps": ["Cocokkan dengan kebijakan internal", "Cek pengecualian yang disetujui"], "min_count_true": 1000000},
+    "other": {"technique": null, "verify_steps": ["Tinjau manual"], "min_count_true": 1000000}
+  }
+}

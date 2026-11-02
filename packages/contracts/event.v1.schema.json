@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SOC Event v1",
+  "type": "object",
+  "required": ["event_id", "source_event_id", "tenant_id", "source", "event_time", "received_at", "severity", "entities", "processing_status", "analysis_status"],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid", "description": "uuid5(tenant_id|source|source_event_id); stabil dari ingest sampai hasil AI"},
+    "source_event_id": {"type": "string", "minLength": 1},
+    "tenant_id": {"type": "string"},
+    "source": {"type": "string"},
+    "event_time": {"type": "string", "format": "date-time", "description": "UTC"},
+    "received_at": {"type": "string", "format": "date-time", "description": "UTC"},
+    "severity": {"enum": ["low", "medium", "high", "critical"]},
+    "entities": {"type": "object", "properties": {"src_ip": {"type": "string"}, "dst_ip": {"type": "string"}, "host": {"type": "string"}, "user": {"type": "string"}, "domain": {"type": "string"}, "hash": {"type": "string"}}},
+    "risk_score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "risk_level": {"enum": ["low", "medium", "high", null]},
+    "scoring_version": {"type": ["string", "null"]},
+    "disposition": {"enum": ["retained", "manual_review", "filtered"]},
+    "processing_status": {"enum": ["received", "normalized", "scored", "indexed"]},
+    "analysis_status": {"enum": ["not_requested", "pending", "completed", "failed", "insufficient_evidence"]}
+  }
+}

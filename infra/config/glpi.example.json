@@ -1,0 +1,13 @@
+{
+  "_catatan": "ID field = ID search-option GLPI pada instalasi ANDA. Temukan: python -m services.engine.enrichment.glpi --list-options Computer. Nilai GLPI yang tidak ada di 'map' diabaikan.",
+  "itemtypes": ["Computer", "NetworkEquipment"],
+  "fields": {"name": 1, "ip": 126, "updated": 19},
+  "attributes": {
+    "criticality": {"field": 9001, "map": {"Kritikal": "core", "Tinggi": "core", "Menengah": "support", "Rendah": "test"}},
+    "sensitivity": {"field": 9002, "map": {"Rahasia": "top_secret", "Terbatas": "confidential", "Internal": "internal", "Publik": "public"}},
+    "exposure":    {"field": 9003, "map": {"Internet": "internet", "DMZ": "dmz", "Internal": "internal", "Terisolasi": "isolated"}},
+    "role":        {"field": 9004, "map": {"Jump server": "jump_server", "Segmen kunci": "key_segment", "Server": "server", "Endpoint": "endpoint"}}
+  },
+  "confidence": 0.85,
+  "on_ambiguous": "skip"
+}

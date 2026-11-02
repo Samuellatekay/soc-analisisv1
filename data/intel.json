@@ -1,0 +1,27 @@
+[
+ {
+  "indicator": "203.0.113.45",
+  "type": "ip",
+  "verdict": "malicious",
+  "confidence": 0.93,
+  "apt": "APT-DEMO-1",
+  "apt_threat_level": 0.8,
+  "source": "opencti"
+ },
+ {
+  "indicator": "198.51.100.77",
+  "type": "ip",
+  "verdict": "suspicious",
+  "confidence": 0.65,
+  "source": "opencti"
+ },
+ {
+  "indicator": "evil-dga-x1.example",
+  "type": "domain",
+  "verdict": "malicious",
+  "confidence": 0.9,
+  "apt": "APT-DEMO-1",
+  "apt_threat_level": 0.8,
+  "source": "opencti"
+ }
+]

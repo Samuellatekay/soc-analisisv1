@@ -1,0 +1,14 @@
+[
+ {
+  "asset": "10.0.1.10",
+  "cve": "CVE-2024-3400",
+  "exploit": "public_exploit",
+  "source": "vuln-scanner"
+ },
+ {
+  "asset": "10.0.1.20",
+  "cve": "CVE-2023-4863",
+  "exploit": "vuln_only",
+  "source": "vuln-scanner"
+ }
+]

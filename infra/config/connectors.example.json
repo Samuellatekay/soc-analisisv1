@@ -1,0 +1,25 @@
+{
+  "_catatan": "Salin ke connectors.json lalu set enabled=true per konektor. Secret HANYA lewat nama env var (*_env) atau Docker secret (NAMA_FILE). Jalankan: python -m services.engine.adapters.runner --test NAMA",
+  "connectors": [
+    {"name": "splunk-prod", "type": "splunk_es", "tenant_id": "default", "enabled": false, "poll_seconds": 60, "batch_size": 2000, "initial_lookback_hours": 24,
+     "params": {"base_url": "https://splunk.example.local:8089", "token_env": "SPLUNK_TOKEN", "index": "notable", "event_window": "-7d", "verify_tls": true}},
+    {"name": "sentinel-prod", "type": "sentinel", "tenant_id": "default", "enabled": false, "poll_seconds": 120, "batch_size": 200,
+     "params": {"tenant_id": "<entra-tenant-guid>", "client_id": "<app-client-id>", "client_secret_env": "SENTINEL_CLIENT_SECRET",
+                "subscription_id": "<sub-guid>", "resource_group": "<rg>", "workspace": "<law-name>", "fetch_entities": true}},
+    {"name": "qradar-prod", "type": "qradar", "tenant_id": "default", "enabled": false, "poll_seconds": 60, "batch_size": 200,
+     "params": {"base_url": "https://qradar.example.local", "token_env": "QRADAR_TOKEN", "api_version": "19.0", "verify_tls": true}},
+    {"name": "crowdstrike-prod", "type": "crowdstrike", "tenant_id": "default", "enabled": false, "poll_seconds": 60, "batch_size": 500,
+     "params": {"base_url": "https://api.crowdstrike.com", "client_id": "<api-client-id>", "client_secret_env": "CS_CLIENT_SECRET"}},
+    {"name": "s1-prod", "type": "sentinelone", "tenant_id": "default", "enabled": false, "poll_seconds": 60, "batch_size": 500,
+     "params": {"base_url": "https://<console>.sentinelone.net", "token_env": "S1_API_TOKEN", "time_field": "createdAt"}},
+    {"name": "defender-prod", "type": "defender", "tenant_id": "default", "enabled": false, "poll_seconds": 120, "batch_size": 1000,
+     "params": {"tenant_id": "<entra-tenant-guid>", "client_id": "<app-client-id>", "client_secret_env": "DEFENDER_CLIENT_SECRET"}},
+    {"name": "cortex-prod", "type": "cortex_xdr", "tenant_id": "default", "enabled": false, "poll_seconds": 60, "batch_size": 500,
+     "params": {"base_url": "https://api-<fqdn>.xdr.<region>.paloaltonetworks.com", "key_id": "<api-key-id>", "key_env": "CORTEX_API_KEY", "auth_type": "standard"}},
+    {"name": "wazuh-indexer", "type": "elasticsearch", "tenant_id": "default", "enabled": false, "poll_seconds": 30, "batch_size": 1000,
+     "params": {"base_url": "https://wazuh-indexer:9200", "index": "wazuh-alerts-*", "time_field": "timestamp", "mapper": "wazuh",
+                "username": "<user>", "password_env": "WAZUH_INDEXER_PASSWORD", "verify_tls": true}},
+    {"name": "elastic-security", "type": "elasticsearch", "tenant_id": "default", "enabled": false, "poll_seconds": 30, "batch_size": 1000,
+     "params": {"base_url": "https://elastic.example.local:9200", "index": ".alerts-security.alerts-default", "time_field": "@timestamp", "mapper": "ecs", "api_key_env": "ELASTIC_API_KEY"}}
+  ]
+}

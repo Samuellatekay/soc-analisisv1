@@ -1,0 +1,14 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+sqlalchemy>=2.0
+pydantic>=2.6
+httpx>=0.27
+numpy>=1.26
+croniter>=2.0
+# opsional: pip install redis neo4j psycopg[binary] transformers torch
+redis>=5.0
+neo4j>=5.20
+PyJWT[crypto]>=2.8
+cryptography>=42
+psycopg[binary]>=3.1
+# training/inferensi BERT (opsional): torch transformers

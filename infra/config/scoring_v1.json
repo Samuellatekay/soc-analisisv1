@@ -1,0 +1,204 @@
+{
+  "scoring_version": "ahp-paper-v1.0",
+  "weights_source": "published",
+  "criteria_weights_published": {
+    "target_criticality": 0.16,
+    "attack_stage_hazard": 0.31,
+    "threat_intel_match": 0.18,
+    "attack_feasibility": 0.22,
+    "attack_persistence": 0.07,
+    "environmental": 0.06
+  },
+  "criteria_order": [
+    "target_criticality",
+    "attack_stage_hazard",
+    "threat_intel_match",
+    "attack_feasibility",
+    "attack_persistence",
+    "environmental"
+  ],
+  "ahp_judgment_matrix": [
+    [
+      1,
+      0.3333333333,
+      0.5,
+      0.3333333333,
+      4,
+      5
+    ],
+    [
+      3,
+      1,
+      3,
+      2,
+      5,
+      6
+    ],
+    [
+      2,
+      0.3333333333,
+      1,
+      0.5,
+      3,
+      4
+    ],
+    [
+      3,
+      0.5,
+      2,
+      1,
+      4,
+      5
+    ],
+    [
+      0.25,
+      0.2,
+      0.3333333333,
+      0.25,
+      1,
+      2
+    ],
+    [
+      0.2,
+      0.1666666667,
+      0.25,
+      0.2,
+      0.5,
+      1
+    ]
+  ],
+  "sub_weights": {
+    "target_criticality": {
+      "asset_business_value": 0.4,
+      "data_sensitivity": 0.3,
+      "attack_surface_exposure": 0.3
+    },
+    "attack_stage_hazard": {
+      "phase_hazard": 0.7,
+      "stage_policy_weight": 0.3
+    },
+    "threat_intel_match": {
+      "ioc_confidence": 0.3,
+      "vulnerability_existence": 0.2,
+      "apt_association": 0.4,
+      "intel_freshness": 0.1
+    },
+    "attack_feasibility": {
+      "vuln_exploitability": 0.5,
+      "path_reachability": 0.3,
+      "protection_bypass": 0.2
+    },
+    "attack_persistence": {
+      "homogeneous_correlation": 0.4,
+      "killchain_progression": 0.4,
+      "lateral_movement": 0.2
+    }
+  },
+  "normalization": {
+    "asset_business_value": {
+      "core": 1.0,
+      "support": 0.6,
+      "test": 0.2,
+      "unknown": 0.6
+    },
+    "data_sensitivity": {
+      "top_secret": 1.0,
+      "confidential": 0.75,
+      "internal": 0.5,
+      "public": 0.25,
+      "unknown": 0.5
+    },
+    "attack_surface_exposure": {
+      "internet": 1.0,
+      "dmz": 0.8,
+      "internal": 0.6,
+      "isolated": 0.2,
+      "unknown": 0.6
+    },
+    "vulnerability_existence": {
+      "existing": 1.0,
+      "possible": 0.5,
+      "none": 0.0
+    },
+    "vuln_exploitability": {
+      "public_exploit": 1.0,
+      "vuln_only": 0.7,
+      "none": 0.3
+    },
+    "path_reachability": {
+      "direct": 1.0,
+      "hop": 0.8,
+      "isolated": 0.1
+    },
+    "protection_bypass": {
+      "evasion": 1.0,
+      "none": 0.8
+    },
+    "killchain_progression": {
+      "progression": 1.0,
+      "none": 0.5
+    },
+    "lateral_movement": {
+      "key_segment": 1.0,
+      "endpoint": 0.7
+    },
+    "homogeneous_correlation": {
+      "base": 0.5,
+      "per_alert": 0.1,
+      "cap": 1.0
+    },
+    "intel_freshness_halflife_days": 30
+  },
+  "tactic_hazard": {
+    "Reconnaissance": 0.1,
+    "Resource Development": 0.15,
+    "Initial Access": 0.4,
+    "Execution": 0.5,
+    "Persistence": 0.6,
+    "Privilege Escalation": 0.65,
+    "Defense Evasion": 0.6,
+    "Credential Access": 0.7,
+    "Discovery": 0.35,
+    "Lateral Movement": 0.8,
+    "Collection": 0.75,
+    "Command and Control": 0.8,
+    "Exfiltration": 0.95,
+    "Impact": 1.0,
+    "Unknown": 0.3
+  },
+  "tactic_policy_weight": {
+    "default": 0.5,
+    "Lateral Movement": 0.8,
+    "Collection": 0.8,
+    "Command and Control": 0.8,
+    "Exfiltration": 1.0,
+    "Impact": 1.0
+  },
+  "killchain_order": [
+    "Reconnaissance",
+    "Resource Development",
+    "Initial Access",
+    "Execution",
+    "Persistence",
+    "Privilege Escalation",
+    "Defense Evasion",
+    "Credential Access",
+    "Discovery",
+    "Lateral Movement",
+    "Collection",
+    "Command and Control",
+    "Exfiltration",
+    "Impact"
+  ],
+  "environment": {
+    "use_multipliers": false,
+    "E_ext_industry_campaign": 1.2,
+    "E_int_network_wide_anomaly": 1.1,
+    "note": "Baseline v1: environmental sebagai kriteria AHP (bobot 0.06) dan E_ext=E_int=1.0 agar tidak dihitung ganda."
+  },
+  "levels": {
+    "high_min": 80,
+    "medium_min": 60
+  },
+  "tactic_policy_weight_note": "Asumsi awal (paper tidak memberi angka): tahap akhir kill-chain lebih mendesak. Kalibrasi dengan data berlabel."
+}

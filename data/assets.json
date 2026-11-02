@@ -1,0 +1,50 @@
+[
+ {
+  "ip": "10.0.1.10",
+  "hostname": "web-prod-01",
+  "criticality": "core",
+  "sensitivity": "confidential",
+  "exposure": "dmz",
+  "role": "server"
+ },
+ {
+  "ip": "10.0.1.20",
+  "hostname": "db-prod-01",
+  "criticality": "core",
+  "sensitivity": "top_secret",
+  "exposure": "internal",
+  "role": "server"
+ },
+ {
+  "ip": "10.0.2.5",
+  "hostname": "jump-01",
+  "criticality": "support",
+  "sensitivity": "internal",
+  "exposure": "internal",
+  "role": "jump_server"
+ },
+ {
+  "ip": "10.0.3.15",
+  "hostname": "ws-finance-07",
+  "criticality": "support",
+  "sensitivity": "confidential",
+  "exposure": "internal",
+  "role": "endpoint"
+ },
+ {
+  "ip": "10.0.9.9",
+  "hostname": "test-lab-02",
+  "criticality": "test",
+  "sensitivity": "public",
+  "exposure": "isolated",
+  "role": "endpoint"
+ },
+ {
+  "ip": "10.0.4.30",
+  "hostname": "mon-probe-01",
+  "criticality": "support",
+  "sensitivity": "internal",
+  "exposure": "internal",
+  "role": "server"
+ }
+]
