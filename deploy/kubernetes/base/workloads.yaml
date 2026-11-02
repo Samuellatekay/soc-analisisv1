@@ -1,0 +1,680 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: soc
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: soc-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: soc-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: soc-api
+        app.kubernetes.io/part-of: soc-analisis
+    spec:
+      serviceAccountName: soc
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: soc-api
+      containers:
+        - name: api
+          image: soc-analisis-api:release
+          imagePullPolicy: IfNotPresent
+          command: ["uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: soc-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: REDIS_URL
+            - name: API_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: API_TOKENS
+                  optional: true
+            - name: INGEST_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: INGEST_API_KEY
+            - name: ELASTICSEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: ELASTICSEARCH_API_KEY
+                  optional: true
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: NEO4J_PASSWORD
+            - name: OPENCTI_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: OPENCTI_TOKEN
+                  optional: true
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: engine
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: soc-engine
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: soc-engine
+        app.kubernetes.io/part-of: soc-analisis
+    spec:
+      serviceAccountName: soc
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 70
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: soc-engine
+      containers:
+        - name: engine
+          image: soc-analisis-api:release
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.engine.main"]
+          envFrom:
+            - configMapRef:
+                name: soc-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: REDIS_URL
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: NEO4J_PASSWORD
+            - name: OPENCTI_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: OPENCTI_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-worker
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: soc-rag-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: soc-rag-worker
+        app.kubernetes.io/part-of: soc-analisis
+    spec:
+      serviceAccountName: soc
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: soc-rag-worker
+      containers:
+        - name: rag-worker
+          image: soc-analisis-api:release
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.rag_worker.main"]
+          envFrom:
+            - configMapRef:
+                name: soc-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: REDIS_URL
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: NEO4J_PASSWORD
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: LLM_API_KEY
+                  optional: true
+            - name: OPENCTI_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: OPENCTI_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: indexer
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: soc-indexer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: soc-indexer
+        app.kubernetes.io/part-of: soc-analisis
+    spec:
+      serviceAccountName: soc
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: indexer
+          image: soc-analisis-api:release
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.indexer.main"]
+          envFrom:
+            - configMapRef:
+                name: soc-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: DATABASE_URL
+            - name: ELASTICSEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: ELASTICSEARCH_API_KEY
+                  optional: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connectors
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: soc-connectors
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: soc-connectors
+        app.kubernetes.io/part-of: soc-analisis
+    spec:
+      serviceAccountName: soc
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 70
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: connectors
+          image: soc-analisis-api:release
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.engine.adapters.runner"]
+          envFrom:
+            - configMapRef:
+                name: soc-config
+            - secretRef:
+                name: soc-connectors
+                optional: true
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: REDIS_URL
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: connectors-config
+              mountPath: /app/infra/config/connectors.json
+              subPath: connectors.json
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: connectors-config
+          configMap:
+            name: soc-connectors-config
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kb-sync
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: soc-kb-sync
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: soc-kb-sync
+        app.kubernetes.io/part-of: soc-analisis
+    spec:
+      serviceAccountName: soc
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kb-sync
+          image: soc-analisis-api:release
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.kb_sync.main"]
+          envFrom:
+            - configMapRef:
+                name: soc-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: soc-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: soc-web
+        app.kubernetes.io/part-of: soc-analisis
+    spec:
+      serviceAccountName: soc
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: soc-web
+      containers:
+        - name: web
+          image: soc-analisis-web:release
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup
+spec:
+  schedule: "0 2 * * *"
+  timeZone: Asia/Jakarta
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: soc-backup
+            app.kubernetes.io/part-of: soc-analisis
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: soc
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: soc-analisis-api:release
+              imagePullPolicy: IfNotPresent
+              command: ["python", "-m", "services.backup.main", "--once"]
+              envFrom:
+                - configMapRef:
+                    name: soc-config
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: soc-runtime
+                      key: DATABASE_URL
+                - name: REDIS_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: soc-runtime
+                      key: REDIS_URL
+                - name: NEO4J_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: soc-runtime
+                      key: NEO4J_PASSWORD
+                - name: ELASTICSEARCH_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: soc-runtime
+                      key: ELASTICSEARCH_API_KEY
+                      optional: true
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  cpu: "2"
+                  memory: 2Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+                - name: backup-key
+                  mountPath: /run/secrets
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: soc-backups
+            - name: backup-key
+              secret:
+                secretName: soc-runtime
+                items:
+                  - key: BACKUP_ENCRYPTION_KEY
+                    path: backup-encryption-key
+            - name: tmp
+              emptyDir:
+                sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: soc-backups
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi

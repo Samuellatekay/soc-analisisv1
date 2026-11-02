@@ -48,7 +48,13 @@ def run_backup(cfg: BackupConfig, database_url: str) -> dict:
     for comp in cfg.components:
         if comp == "elasticsearch":
             if os.getenv("BACKUP_ES_REPOSITORY"):
-                result.setdefault("snapshots", []).append(es_job.run(get_settings().es_url, os.environ["BACKUP_ES_REPOSITORY"]))
+                result.setdefault("snapshots", []).append(
+                    es_job.run(
+                        get_settings().es_url,
+                        os.environ["BACKUP_ES_REPOSITORY"],
+                        api_key=get_settings().es_api_key,
+                    )
+                )
             else:
                 result["skipped"][comp] = "BACKUP_ES_REPOSITORY belum diset (snapshot repository ES harus didaftarkan lebih dulu)"
             continue

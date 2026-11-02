@@ -32,6 +32,7 @@ class Settings:
     database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", f"sqlite:///{ROOT / 'data' / 'soc.db'}"))
     redis_url: str = field(default_factory=lambda: os.getenv("REDIS_URL", ""))
     es_url: str = field(default_factory=lambda: os.getenv("ELASTICSEARCH_URL", ""))
+    es_api_key: str = field(default_factory=lambda: _read_secret("ELASTICSEARCH_API_KEY"))
     es_index: str = field(default_factory=lambda: os.getenv("ELASTICSEARCH_INDEX", "soc-alerts-v1"))
     neo4j_uri: str = field(default_factory=lambda: os.getenv("NEO4J_URI", ""))
     neo4j_user: str = field(default_factory=lambda: os.getenv("NEO4J_USER", "neo4j"))

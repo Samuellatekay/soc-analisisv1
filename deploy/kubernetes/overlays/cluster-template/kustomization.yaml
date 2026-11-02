@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: soc-cluster-01
+resources:
+  - ../../base
+  - policy-agent.yaml
+images:
+  - name: soc-analisis-api
+    newName: registry.example.com/soc/soc-analisis-api
+    newTag: replace-with-release
+  - name: soc-analisis-web
+    newName: registry.example.com/soc/soc-analisis-web
+    newTag: replace-with-release
+patches:
+  - path: namespace-patch.yaml
+    target:
+      group: ""
+      version: v1
+      kind: Namespace
+      name: soc-analisis
+  - path: config-patch.yaml
+    target:
+      group: ""
+      version: v1
+      kind: ConfigMap
+      name: soc-config
+  - path: ingress-patch.yaml
+    target:
+      group: networking.k8s.io
+      version: v1
+      kind: Ingress
+      name: soc
+  - path: connectors-config-patch.yaml
+    target:
+      group: ""
+      version: v1
+      kind: ConfigMap
+      name: soc-connectors-config

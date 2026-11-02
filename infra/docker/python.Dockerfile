@@ -9,6 +9,7 @@ COPY apps/master ./apps/master
 COPY infra/config ./infra/config
 COPY data ./data
 ENV PYTHONPATH=/app:/app/apps/api
-RUN useradd -m soc && mkdir -p /app/data /backups && chown -R soc /app /backups
-USER soc
+RUN useradd --uid 10001 --user-group --create-home soc && mkdir -p /app/data /backups && chown -R 10001:10001 /app /backups
+ENV PYTHONDONTWRITEBYTECODE=1
+USER 10001:10001
 # CMD ditentukan per layanan di docker-compose

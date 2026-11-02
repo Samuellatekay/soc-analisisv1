@@ -31,7 +31,7 @@ def check_elasticsearch(settings) -> None:
     from services.indexer.elasticsearch_client import ESClient
 
     index = f"soc-integration-smoke-{uuid.uuid4().hex}"
-    client = ESClient(settings.es_url, index)
+    client = ESClient(settings.es_url, index, api_key=settings.es_api_key)
     try:
         client.ensure_index()
         document_id = str(uuid.uuid4())

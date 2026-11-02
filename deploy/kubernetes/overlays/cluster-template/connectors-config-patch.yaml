@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: soc-connectors-config
+data:
+  connectors.json: |
+    {"connectors":[]}

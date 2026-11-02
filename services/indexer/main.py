@@ -38,7 +38,7 @@ def run():
     es = None
     if s.es_url:
         from .elasticsearch_client import ESClient
-        es = ESClient(s.es_url, s.es_index)
+        es = ESClient(s.es_url, s.es_index, api_key=s.es_api_key)
         es.ensure_index()
     while True:
         if not run_once(es):

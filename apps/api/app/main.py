@@ -47,6 +47,25 @@ def _embedded_loop(stop: threading.Event):
             time.sleep(0.5)
 
 
+def _start_policy_agent(stop: threading.Event) -> None:
+    enabled = os.getenv("MASTER_POLICY_AGENT_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+    if not os.getenv("MASTER_URL") or not enabled:
+        return
+    from services.engine.policy_agent import PolicyAgent, loop as policy_loop
+
+    try:
+        agent = PolicyAgent.from_env()
+    except ValueError as e:
+        log.error("policy agent tidak aktif: %s", e)
+        return
+    threading.Thread(
+        target=policy_loop,
+        args=(agent, float(os.getenv("POLICY_POLL_SECONDS", "60")), stop),
+        daemon=True,
+        name="policy-agent",
+    ).start()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -61,12 +80,7 @@ async def lifespan(app: FastAPI):
         if conns:
             threading.Thread(target=runner.loop, args=(conns, runner.default_sink(s), stop), daemon=True, name="connectors").start()
             log.info("konektor aktif: %s", [c.name for c, _ in conns])
-    if os.getenv("MASTER_URL") and s.embedded_workers:   # cluster terkelola Master: tarik kebijakan (opsional)
-        from services.engine.policy_agent import PolicyAgent, loop as policy_loop
-        try:
-            threading.Thread(target=policy_loop, args=(PolicyAgent.from_env(), float(os.getenv("POLICY_POLL_SECONDS", "60")), stop), daemon=True, name="policy-agent").start()
-        except ValueError as e:
-            log.error("policy agent tidak aktif: %s", e)
+    _start_policy_agent(stop)
     yield
     stop.set()
 
@@ -107,12 +121,13 @@ def _check_redis(url: str) -> dict:
     return {"status": "ok"}
 
 
-def _check_elasticsearch(url: str) -> dict:
+def _check_elasticsearch(url: str, api_key: str = "") -> dict:
     if not url:
         return {"status": "not_configured"}
     import httpx
     try:
-        response = httpx.get(f"{url.rstrip('/')}/_cluster/health", timeout=2)
+        headers = {"Authorization": f"ApiKey {api_key}"} if api_key else None
+        response = httpx.get(f"{url.rstrip('/')}/_cluster/health", headers=headers, timeout=2)
         response.raise_for_status()
     except httpx.HTTPError:
         log.warning("readiness check failed for elasticsearch")
@@ -141,7 +156,7 @@ def readiness():
     checks = {
         "database": _check_database(),
         "redis": _check_redis(s.redis_url),
-        "elasticsearch": _check_elasticsearch(s.es_url),
+        "elasticsearch": _check_elasticsearch(s.es_url, s.es_api_key),
         "neo4j": _check_neo4j(s.neo4j_uri, s.neo4j_user, s.neo4j_password),
     }
     required = {"database"}

@@ -63,7 +63,7 @@ services:
   #   environment: { MASTER_DATABASE_URL: "postgresql+psycopg://...", MASTER_SIGNING_KEY_FILE: /run/secrets/master_policy_key, MASTER_API_TOKENS_FILE: ... }
   web:
     build: { context: .., dockerfile: infra/docker/web.Dockerfile }
-    ports: ["8080:80"]
+    ports: ["8080:8080"]
     depends_on: [api]
   # ollama: tambahkan service sendiri + pin tag model (OLLAMA_URL, OLLAMA_MODEL); tanpa ini analisis memakai template tanpa LLM.
 volumes: { pgdata: {}, redisdata: {}, esdata: {}, neo4jdata: {}, backups: {} }

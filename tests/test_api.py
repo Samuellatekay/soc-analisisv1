@@ -37,7 +37,7 @@ def test_readiness_reports_required_dependencies(c, monkeypatch):
     s.ingest_mode, s.redis_url = "queue", "redis://unavailable"
     monkeypatch.setattr(main, "_check_database", lambda: {"status": "ok"})
     monkeypatch.setattr(main, "_check_redis", lambda _url: {"status": "unavailable", "error": "redis connection failed"})
-    monkeypatch.setattr(main, "_check_elasticsearch", lambda _url: {"status": "not_configured"})
+    monkeypatch.setattr(main, "_check_elasticsearch", lambda *_args: {"status": "not_configured"})
     monkeypatch.setattr(main, "_check_neo4j", lambda *_args: {"status": "not_configured"})
     try:
         response = c.get("/api/v1/ready")

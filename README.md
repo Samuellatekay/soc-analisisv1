@@ -174,6 +174,54 @@ Mode ini menjalankan API, UI, database, antrean, dan worker sebagai layanan terp
 
 Perintah `down` mempertahankan data volume. **Jangan gunakan `down -v`** kecuali memang ingin menghapus data. Ollama tidak otomatis dijalankan oleh Compose; RAG tetap dapat menggunakan analisis template bila Ollama belum dikonfigurasi. Backup aktif pada contoh `.env`; sebelum menjalankan stack, siapkan kunci lalu mount file tersebut ke service `backup` pada path `BACKUP_ENCRYPTION_KEY_FILE`. Path secret tidak otomatis dipasang oleh Compose.
 
+### Deployment Kubernetes untuk banyak cluster
+
+Template Kubernetes tersedia di [`deploy/kubernetes/`](deploy/kubernetes/). Buat satu deployment/namespace per cluster SOC; satu Master dapat mengelola cluster-cluster tersebut secara terpisah. Manifest menggunakan PostgreSQL, Redis, Elasticsearch, dan Neo4j **terkelola di luar namespace aplikasi**. Template ini bukan paket database HA dan belum mengukur kapasitas untuk laju alert tertentu.
+
+Sebelum menerapkan:
+
+1. Siapkan cluster Kubernetes **1.27 atau lebih baru**, ingress controller, DNS, sertifikat TLS, persistent storage, dan secret manager. Aktifkan enkripsi Secret at-rest. NetworkPolicy perlu CNI yang mendukungnya.
+2. Sediakan endpoint PostgreSQL dengan connection pooling, Redis, Elasticsearch, dan Neo4j untuk cluster SOC ini. Gunakan TLS dan kredensial unik; jangan memakai endpoint `*.example.com` dari template. Siapkan juga endpoint Master yang bisa dijangkau Master ↔ cluster.
+3. Build dan push image dengan tag rilis immutable ke registry perusahaan:
+
+   ```bash
+   docker build -f infra/docker/python.Dockerfile -t registry.example.com/soc/soc-analisis-api:v1.0.0 .
+   docker build -f infra/docker/web.Dockerfile -t registry.example.com/soc/soc-analisis-web:v1.0.0 .
+   docker push registry.example.com/soc/soc-analisis-api:v1.0.0
+   docker push registry.example.com/soc/soc-analisis-web:v1.0.0
+   ```
+
+4. Salin [`deploy/kubernetes/overlays/cluster-template/`](deploy/kubernetes/overlays/cluster-template/) menjadi overlay baru untuk setiap cluster. Ubah namespace, `CLUSTER_ID`, URL layanan, host ingress/TLS, dan nama image/tag. Setiap cluster harus punya database, queue, kredensial, serta ID cluster yang sesuai.
+5. Buat namespace (label Pod Security Restricted) dan Secret TLS:
+
+   ```bash
+   kubectl create namespace soc-cluster-01
+   kubectl label namespace soc-cluster-01 pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/audit=restricted pod-security.kubernetes.io/warn=restricted
+   kubectl -n soc-cluster-01 create secret tls soc-analisis-tls --cert=/secure/path/tls.crt --key=/secure/path/tls.key
+   ```
+
+6. Buat file environment rahasia di luar repository dengan permission terbatas, lalu buat Secret melalui mekanisme secret manager Anda. Secret bernama `soc-runtime` perlu menyediakan `DATABASE_URL`, `REDIS_URL`, `INGEST_API_KEY`, `NEO4J_PASSWORD`, dan `BACKUP_ENCRYPTION_KEY`. Format `DATABASE_URL` adalah URL SQLAlchemy PostgreSQL (gunakan `%40` untuk `@` pada password); `REDIS_URL` gunakan TLS (`rediss://`) jika layanan mendukungnya. Tambahkan `API_TOKENS` jika login token statis dipakai. `ELASTICSEARCH_API_KEY`, `LLM_API_KEY`, dan `OPENCTI_TOKEN` hanya diperlukan sesuai layanan. Overlay Master juga memerlukan `MASTER_CLUSTER_TOKEN` dan `MASTER_POLICY_PUBKEY`. Buat backup key dengan `.venv/bin/python -m services.backup.crypto genkey /secure/path/backup.key`, lalu berikan file itu sebagai Secret key `BACKUP_ENCRYPTION_KEY`. Contoh pembuatan secret dari file yang disimpan di luar repo:
+
+   ```bash
+   kubectl -n soc-cluster-01 create secret generic soc-runtime \
+     --from-env-file=/secure/path/soc-runtime.env \
+     --from-file=BACKUP_ENCRYPTION_KEY=/secure/path/backup.key
+   ```
+
+   File env harus memuat URL dan kredensial runtime, tetapi jangan sertakan `BACKUP_ENCRYPTION_KEY` di dalamnya. Untuk overlay Master, sertakan juga `--from-file=MASTER_POLICY_PUBKEY=/secure/path/master_policy.pub` dan `MASTER_CLUSTER_TOKEN` di file env. Gunakan secret manager sink/CSI untuk menyuplai secret di operasi berkelanjutan. Jangan menyimpan file rahasia atau Secret hasil render ke Git.
+7. Sesuaikan `connectors-config-patch.yaml` jika konektor diperlukan; semua konektor mati secara default. Atur kredensial vendor melalui Secret `soc-connectors`, bukan di ConfigMap.
+8. Sesuaikan label namespace `ingress-nginx` pada NetworkPolicy bila ingress controller Anda memakai namespace berbeda, lalu validasi dan terapkan overlay:
+
+   ```bash
+   kubectl kustomize deploy/kubernetes/overlays/cluster-template
+   kubectl diff -k deploy/kubernetes/overlays/cluster-template
+   kubectl apply -k deploy/kubernetes/overlays/cluster-template
+   kubectl -n soc-cluster-01 rollout status deployment/api
+   kubectl -n soc-cluster-01 get pods
+   ```
+
+Untuk konfigurasi production, ganti contoh model/provider AI hanya setelah kebijakan data mengizinkan alert dikirim ke provider itu. Backup template menyimpan hasil pada PVC satu cluster; replikasi off-site, uji restore berkala, pemulihan Elasticsearch, monitoring/alerting, pengaturan egress, dan uji beban sesuai target **tetap wajib disiapkan oleh operator**. Jangan menyatakan deployment enterprise siap sebelum seluruh uji tersebut lulus pada lingkungan target. Lihat [`docs/LOADTEST.md`](docs/LOADTEST.md) untuk batas angka benchmark yang sudah ada.
+
 ### 3. Master — pengelola cluster (opsional)
 
 Master bukan pengganti aplikasi SOC dan tidak memproses alert. Jalankan cluster SOC terlebih dahulu dengan mode Single atau Orkestrasi; Master dipasang terpisah untuk memantau cluster dan mengelola kebijakan. Contoh Linux di bawah menghubungkan Master development ke cluster Single lokal.

@@ -81,9 +81,15 @@ def test_encrypted_backup_and_restore_end_to_end(tmp_path):
 
 
 def test_es_snapshot_job_success_and_failure():
-    ok = lambda r: httpx.Response(200, json={"snapshot": {"state": "SUCCESS", "shards": {"total": 3, "failed": 0, "successful": 3}}})  # noqa: E731
-    r = es_job.run("http://es:9200", "repo1", transport=httpx.MockTransport(ok))
+    seen = []
+
+    def ok(request):
+        seen.append(request)
+        return httpx.Response(200, json={"snapshot": {"state": "SUCCESS", "shards": {"total": 3, "failed": 0, "successful": 3}}})
+
+    r = es_job.run("http://es:9200", "repo1", transport=httpx.MockTransport(ok), api_key="encoded-api-key")
     assert r["state"] == "SUCCESS" and r["snapshot"].startswith("soc-")
+    assert seen[0].headers["Authorization"] == "ApiKey encoded-api-key"
     bad = lambda r: httpx.Response(200, json={"snapshot": {"state": "PARTIAL", "shards": {"total": 3, "failed": 1}}})  # noqa: E731
     with pytest.raises(RuntimeError):
         es_job.run("http://es:9200", "repo1", transport=httpx.MockTransport(bad))

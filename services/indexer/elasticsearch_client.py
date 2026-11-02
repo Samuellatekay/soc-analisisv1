@@ -13,8 +13,16 @@ MAPPING = {"mappings": {"properties": {
 
 
 class ESClient:
-    def __init__(self, url: str, index: str, timeout: float = 10.0):
-        self.url, self.index, self.http = url.rstrip("/"), index, httpx.Client(timeout=timeout)
+    def __init__(
+        self,
+        url: str,
+        index: str,
+        timeout: float = 10.0,
+        api_key: str = "",
+        transport: httpx.BaseTransport | None = None,
+    ):
+        headers = {"Authorization": f"ApiKey {api_key}"} if api_key else None
+        self.url, self.index, self.http = url.rstrip("/"), index, httpx.Client(timeout=timeout, headers=headers, transport=transport)
 
     def ensure_index(self):
         if self.http.head(f"{self.url}/{self.index}").status_code == 404:
