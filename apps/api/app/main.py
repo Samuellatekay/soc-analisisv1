@@ -10,9 +10,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1 import admin, alerts, cases, connectors, ingest
 from services.common.config import ROOT, get_settings
@@ -79,6 +80,78 @@ def health():
     s = get_settings()
     return {"status": "ok", "ingest_mode": s.ingest_mode, "redis": bool(s.redis_url), "elasticsearch": bool(s.es_url),
             "neo4j": bool(s.neo4j_uri), "llm": s.ollama_model or "template-v1(no-llm)"}
+
+
+def _check_database() -> dict:
+    try:
+        from services.common.db import get_engine
+        with get_engine().connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        log.warning("readiness check failed for database")
+        return {"status": "unavailable", "error": "database connection failed"}
+    return {"status": "ok"}
+
+
+def _check_redis(url: str) -> dict:
+    if not url:
+        return {"status": "not_configured"}
+    import redis
+    try:
+        client = redis.Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
+        client.ping()
+        client.close()
+    except redis.exceptions.RedisError:
+        log.warning("readiness check failed for redis")
+        return {"status": "unavailable", "error": "redis connection failed"}
+    return {"status": "ok"}
+
+
+def _check_elasticsearch(url: str) -> dict:
+    if not url:
+        return {"status": "not_configured"}
+    import httpx
+    try:
+        response = httpx.get(f"{url.rstrip('/')}/_cluster/health", timeout=2)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        log.warning("readiness check failed for elasticsearch")
+        return {"status": "unavailable", "error": "elasticsearch connection failed"}
+    return {"status": "ok"}
+
+
+def _check_neo4j(uri: str, user: str, password: str) -> dict:
+    if not uri:
+        return {"status": "not_configured"}
+    from neo4j import GraphDatabase
+    from neo4j.exceptions import Neo4jError
+    try:
+        with GraphDatabase.driver(uri, auth=(user, password), connection_timeout=2) as driver:
+            driver.verify_connectivity()
+    except (Neo4jError, OSError):
+        log.warning("readiness check failed for neo4j")
+        return {"status": "unavailable", "error": "neo4j connection failed"}
+    return {"status": "ok"}
+
+
+@app.get("/api/v1/ready")
+def readiness():
+    """Readiness check; liveness remains available at /api/v1/health."""
+    s = get_settings()
+    checks = {
+        "database": _check_database(),
+        "redis": _check_redis(s.redis_url),
+        "elasticsearch": _check_elasticsearch(s.es_url),
+        "neo4j": _check_neo4j(s.neo4j_uri, s.neo4j_user, s.neo4j_password),
+    }
+    required = {"database"}
+    if s.ingest_mode == "queue":
+        required.add("redis")
+    if checks["redis"]["status"] == "not_configured" and "redis" in required:
+        checks["redis"] = {"status": "unavailable", "error": "REDIS_URL is required for queue ingest"}
+    ready = all(checks[name]["status"] == "ok" for name in required)
+    return JSONResponse({"status": "ready" if ready else "not_ready", "checks": checks},
+                        status_code=200 if ready else 503)
 
 
 for r in (ingest.router, alerts.router, cases.router, admin.router, connectors.router):

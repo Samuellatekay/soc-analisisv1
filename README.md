@@ -3,16 +3,20 @@
 Implementasi dari spesifikasi **SOC Analisis Engine** dan paper *"Intelligent priority awareness method for alert data in SOC threat response"* (J. King Saud Univ. CIS, 2026) 38:776:
 risk-gated FFT-PCC noise reduction → evidence orchestration (agen deterministik + BERT) → semantic integrity verification → skor risiko AHP → aplikasi analis (dashboard, alert, case).
 
-## Jalankan (tanpa Docker, 2 menit)
+## Instalasi cepat (Ubuntu/Linux, tanpa Docker)
 
 ```bash
-pip install -r requirements-dev.txt
-python run_dev.py                       # http://localhost:8000  (SQLite + worker tertanam + UI hasil build)
-# terminal lain:
-python scripts/generate_demo_data.py --api http://localhost:8000   # data sintetis ±750 alert
+make setup      # Python venv + dependency backend + frontend + build UI
+make dev        # jalankan aplikasi di http://localhost:8000
 ```
-Buka http://localhost:8000 → masukkan token `dev-analyst-token` (admin: `dev-admin-token`, viewer: `dev-viewer-token`).
-Tes: `python -m pytest -q` (144 tes Python — lulus di SQLite **dan** PostgreSQL 16 + Redis nyata — + 9 tes vitest di `apps/web`). UI dev dengan hot-reload: `cd apps/web && npm install && npm run dev` (port 5173, proxy ke :8000).
+
+Persyaratan: Python 3.12+, Node.js 18+, dan npm. Installer tidak memerlukan `sudo` dan tidak mengubah `.env`. Setelah server berjalan, buka alamat tersebut dan login dengan token development `dev-analyst-token` (admin: `dev-admin-token`, viewer: `dev-viewer-token`). Tekan `Ctrl+C` untuk berhenti.
+
+Jika mengakses dari komputer lain, gunakan `http://<IP-VM>:8000` dan pastikan port 8000 diizinkan oleh firewall VM/cloud. Untuk membuat data contoh, jalankan di terminal lain: `.venv/bin/python scripts/generate_demo_data.py --api http://localhost:8000`.
+
+Untuk tes: `make test`; untuk tes UI: `cd apps/web && npm test`. Untuk menjalankan UI Vite dengan hot reload: `cd apps/web && npm run dev` (port 5173, proxy ke API port 8000).
+
+`GET /api/v1/health` adalah liveness check. Gunakan `GET /api/v1/ready` untuk readiness: memeriksa koneksi database dan Redis bila ingest memakai mode queue, serta melaporkan status Elasticsearch/Neo4j bila dikonfigurasi.
 
 Stack penuh (PostgreSQL, Redis Streams, Elasticsearch, Neo4j, worker terpisah): `cp .env.example .env && docker compose -f infra/docker-compose.yml --env-file .env up --build` — lihat "Status verifikasi".
 
@@ -22,12 +26,18 @@ Perintah PowerShell di bawah ditujukan untuk Windows. Mode **Single** menjalanka
 
 ### Single (lokal, tanpa Docker)
 
-1. Pasang Python 3.12 atau lebih baru, lalu dari root repo:
+Di Ubuntu/Linux, cara tercepat adalah `make setup` lalu `make dev` dari root repo. Script `scripts/install.sh` membuat `.venv`, memasang dependency backend, menjalankan `npm ci`, dan membangun UI; bila kebutuhan dasar belum terpasang, script menjelaskan apa yang kurang.
+
+Di Windows, pasang Python 3.12+, Node.js 18+, dan npm, lalu dari root repo:
 
    ```powershell
    py -3.12 -m venv .venv
    .\.venv\Scripts\Activate.ps1
    python -m pip install -r requirements-dev.txt
+   cd apps\web
+   npm ci
+   npm run build
+   cd ..\..
    ```
 
 2. Jalankan aplikasi:
@@ -177,10 +187,10 @@ Sesuai rancangan spesifikasi. Penyimpangan kecil yang disengaja: `services/commo
 
 | Bagian | Status |
 |---|---|
-| FFT-PCC, risk gate, integrity, AHP, pipeline, fusion, API+RBAC+tenant, case workflow, RAG worker (template), outbox/indexer (SQL), KB importer+rollback+lease, backup SQLite+verify+retensi, Redis Streams (retry/DLQ/replay, via fakeredis) | **Diuji otomatis** (144 tes Python — lulus di SQLite **dan** PostgreSQL 16 + Redis nyata — + 9 tes vitest di `apps/web`) + demo end-to-end |
+| FFT-PCC, risk gate, integrity, AHP, pipeline, fusion, API+RBAC+tenant, case workflow, RAG worker (template), outbox/indexer (SQL), KB importer+rollback+lease, backup SQLite+verify+retensi, Redis Streams (retry/DLQ/replay, via fakeredis) | **Diuji otomatis** (145 tes Python — lulus di SQLite **dan** PostgreSQL 16 + Redis nyata — + 9 tes vitest di `apps/web`) + demo end-to-end |
 | Impor MITRE ATT&CK resmi (STIX) | Diuji sungguhan (706 teknik) |
 | UI React | Type-check + build lolos; tampilan belum diuji visual lintas peramban |
-| **PostgreSQL 16 + Redis (nyata)** | **Diuji**: seluruh suite (144 tes), migrasi SQL, `pg_dump`/`pg_restore`, Redis Streams multi-proses, uji `kill -9` worker, DUMP/RESTORE Redis. Menemukan & memperbaiki bug konkurensi yang tidak muncul di SQLite (lihat `docs/LOADTEST.md`) |
+| **PostgreSQL 16 + Redis (nyata)** | **Diuji**: seluruh suite (145 tes), migrasi SQL, `pg_dump`/`pg_restore`, Redis Streams multi-proses, uji `kill -9` worker, DUMP/RESTORE Redis. Menemukan & memperbaiki bug konkurensi yang tidak muncul di SQLite (lihat `docs/LOADTEST.md`) |
 | Elasticsearch, Neo4j, Ollama, OpenCTI GraphQL, docker-compose | **Ditulis tetapi belum dijalankan** terhadap layanan sungguhan — uji di staging. Query ES & Cypher mengasumsikan skema tertentu; sesuaikan |
 | GLPI REST | Provider ada (`services/engine/enrichment/glpi.py`): initSession/search/killSession sesuai dokumentasi GLPI, pemetaan field berbasis konfigurasi (`infra/config/glpi.example.json`), nilai tak terpetakan diabaikan. Diuji dengan respons tiruan; **belum** dengan instance GLPI nyata. ID field kritikalitas/sensitivitas bersifat khas instalasi (lihat `--list-options`) |
 | Konektor Splunk ES, Sentinel, QRadar, CrowdStrike, SentinelOne, Defender, Cortex XDR, Elasticsearch/Wazuh, syslog CEF/LEEF | **Ada** (polling + checkpoint + retry/rate-limit + status di UI). Diuji dengan respons tiruan bentuk-dokumentasi dan CrowdStrike lewat HTTP nyata ke server tiruan. **Belum diuji terhadap tenant vendor sungguhan**; 5 dari 8 endpoint dicocokkan dengan dokumentasi, Splunk/QRadar/Elasticsearch ditulis dari pengetahuan dokumentasi. Rincian & batasan: `docs/CONNECTORS.md` |

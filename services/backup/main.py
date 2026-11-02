@@ -97,6 +97,9 @@ def restore(cfg: BackupConfig, artifact: Path, out: Path) -> Path:
 
 
 def loop(cfg: BackupConfig):
+    errs = cfg.validate()
+    if errs:
+        raise ValueError("; ".join(errs))
     s = get_settings()
     tz = ZoneInfo(cfg.timezone)
     it = croniter(cfg.cron, datetime.now(tz))

@@ -28,6 +28,43 @@ def test_auth_required(c):
     assert c.get("/api/v1/health").status_code == 200
 
 
+def test_readiness_reports_required_dependencies(c, monkeypatch):
+    from app import main
+    from services.common.config import get_settings
+
+    s = get_settings()
+    old_mode, old_redis = s.ingest_mode, s.redis_url
+    s.ingest_mode, s.redis_url = "queue", "redis://unavailable"
+    monkeypatch.setattr(main, "_check_database", lambda: {"status": "ok"})
+    monkeypatch.setattr(main, "_check_redis", lambda _url: {"status": "unavailable", "error": "redis connection failed"})
+    monkeypatch.setattr(main, "_check_elasticsearch", lambda _url: {"status": "not_configured"})
+    monkeypatch.setattr(main, "_check_neo4j", lambda *_args: {"status": "not_configured"})
+    try:
+        response = c.get("/api/v1/ready")
+        assert response.status_code == 503
+        assert response.json()["status"] == "not_ready"
+        assert response.json()["checks"]["redis"]["status"] == "unavailable"
+    finally:
+        s.ingest_mode, s.redis_url = old_mode, old_redis
+
+
+def test_readiness_accepts_optional_unconfigured_services(c, monkeypatch):
+    from app import main
+    from services.common.config import get_settings
+
+    s = get_settings()
+    old_mode, old_redis, old_es, old_neo4j = s.ingest_mode, s.redis_url, s.es_url, s.neo4j_uri
+    s.ingest_mode, s.redis_url, s.es_url, s.neo4j_uri = "inline", "", "", ""
+    monkeypatch.setattr(main, "_check_database", lambda: {"status": "ok"})
+    try:
+        response = c.get("/api/v1/ready")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ready"
+        assert response.json()["checks"]["neo4j"]["status"] == "not_configured"
+    finally:
+        s.ingest_mode, s.redis_url, s.es_url, s.neo4j_uri = old_mode, old_redis, old_es, old_neo4j
+
+
 def test_ingest_list_detail_and_tenant_isolation(c):
     r = ingest(c, 3)
     assert r.json()["accepted"] == 3

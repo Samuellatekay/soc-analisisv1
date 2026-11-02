@@ -1,11 +1,11 @@
-.PHONY: install dev demo test web
-install:        ## dependensi Python
-	pip install -r requirements-dev.txt
+.PHONY: setup install dev demo test web
+setup install:  ## siapkan backend dan frontend
+	bash scripts/install.sh
 dev:            ## API + worker tertanam + UI (http://localhost:8000)
-	python run_dev.py
+	.venv/bin/python run_dev.py
 demo:           ## isi data sintetis (server harus berjalan)
-	python scripts/generate_demo_data.py --api http://localhost:8000
+	.venv/bin/python scripts/generate_demo_data.py --api http://localhost:8000
 test:
-	python -m pytest -q
+	.venv/bin/python -m pytest -q
 web:            ## build ulang frontend
-	cd apps/web && npm install && npm run build
+	cd apps/web && npm ci && npm run build

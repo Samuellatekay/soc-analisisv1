@@ -14,6 +14,23 @@ from services.common.config import get_settings
 RURL = "redis://127.0.0.1:6379/15"
 
 
+def test_backup_config_rejects_invalid_schedule_timezone_components_and_retention(tmp_path):
+    cfg = BackupConfig(True, "not a cron", "Mars/Olympus", ["postgres", "unknown"], 0,
+                       str(tmp_path / "repo"), True, "", schedule_mode="interval")
+    errors = cfg.validate()
+    assert any("SCHEDULE_MODE" in error for error in errors)
+    assert any("SCHEDULE_CRON" in error for error in errors)
+    assert any("TIMEZONE" in error for error in errors)
+    assert any("BACKUP_COMPONENTS" in error for error in errors)
+    assert any("RETENTION_DAYS" in error for error in errors)
+
+
+def test_backup_config_accepts_supported_settings(tmp_path):
+    cfg = BackupConfig(True, "0 2 * * *", "Asia/Jakarta", ["postgres", "redis"], 30,
+                       str(tmp_path / "repo"), True, "")
+    assert cfg.validate() == []
+
+
 @pytest.fixture
 def r():
     c = redis.Redis.from_url(RURL)
