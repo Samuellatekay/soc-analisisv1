@@ -17,7 +17,7 @@ export default function Alerts() {
     <>
       <h2>Alert</h2>
       <div className="filters">
-        <input placeholder="event_id, IP, host, teknik (T1110), teks…" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} onKeyDown={(e) => e.key === "Enter" && (setPage(1), load())} />
+        <input placeholder="event_id, IP, domain, hash, host, teknik (T1110), teks…" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} onKeyDown={(e) => e.key === "Enter" && (setPage(1), load())} />
         <select value={f.risk_level} onChange={(e) => set("risk_level", e.target.value)}><option value="">semua level</option><option value="high">tinggi</option><option value="medium">sedang</option><option value="low">rendah</option></select>
         <select value={f.disposition} onChange={(e) => set("disposition", e.target.value)}><option value="">disposisi (tanpa noise)</option><option value="retained">dipertahankan</option><option value="manual_review">review manual</option><option value="filtered">difilter</option></select>
         <select value={f.analysis_status} onChange={(e) => set("analysis_status", e.target.value)}><option value="">status analisis</option><option value="pending">pending</option><option value="completed">completed</option><option value="failed">failed</option><option value="insufficient_evidence">bukti kurang</option></select>

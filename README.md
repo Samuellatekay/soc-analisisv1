@@ -16,6 +16,116 @@ Tes: `python -m pytest -q` (144 tes Python — lulus di SQLite **dan** PostgreSQ
 
 Stack penuh (PostgreSQL, Redis Streams, Elasticsearch, Neo4j, worker terpisah): `cp .env.example .env && docker compose -f infra/docker-compose.yml --env-file .env up --build` — lihat "Status verifikasi".
 
+## Instalasi menurut mode operasi
+
+Perintah PowerShell di bawah ditujukan untuk Windows. Mode **Single** menjalankan API dan worker dalam satu proses untuk development/POC. Mode **Orkestrasi** memisahkan API, broker, database, dan worker. **Master bukan mode pemrosesan alert**: ia adalah control plane opsional untuk memantau cluster dan mengirim kebijakan; alert tetap diproses oleh cluster.
+
+### Single (lokal, tanpa Docker)
+
+1. Pasang Python 3.12 atau lebih baru, lalu dari root repo:
+
+   ```powershell
+   py -3.12 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   python -m pip install -r requirements-dev.txt
+   ```
+
+2. Jalankan aplikasi:
+
+   ```powershell
+   python run_dev.py
+   ```
+
+3. Buka `http://localhost:8000`, lalu login dengan token development `dev-analyst-token` (admin: `dev-admin-token`). Database SQLite dan worker tertanam digunakan secara otomatis. Untuk berhenti, tekan `Ctrl+C`.
+
+Mode ini untuk development/POC, bukan deployment HA atau produksi. Ganti token development dan gunakan konfigurasi autentikasi/secret yang sesuai sebelum memaparkan layanan ke jaringan.
+
+### Orkestrasi (Docker Compose, satu host)
+
+1. Pasang Docker Desktop dengan Docker Compose v2 dan pastikan Docker berjalan.
+2. Dari root repo, siapkan konfigurasi:
+
+   ```powershell
+   Copy-Item .env.example .env
+   Copy-Item infra\config\connectors.example.json infra\config\connectors.json
+   ```
+
+3. Edit `.env`: ganti password development, token API, dan ingest key; isi konfigurasi secret yang diperlukan. Jangan gunakan nilai contoh untuk deployment yang dapat diakses pihak lain.
+4. Bangun dan jalankan stack:
+
+   ```powershell
+   docker compose -f infra\docker-compose.yml --env-file .env up --build
+   ```
+
+   UI tersedia di `http://localhost:8080`. Log bisa dilihat dengan `docker compose -f infra\docker-compose.yml --env-file .env logs -f`.
+5. Untuk menghentikan stack tanpa menghapus data volume:
+
+   ```powershell
+   docker compose -f infra\docker-compose.yml --env-file .env down
+   ```
+
+Compose menjalankan PostgreSQL, Redis Streams, Elasticsearch, Neo4j, API, engine, RAG worker, indexer, connector, KB sync, backup, dan web. Untuk menambah worker pada host yang sama, gunakan misalnya `docker compose -f infra\docker-compose.yml --env-file .env up --build --scale engine=2 --scale rag_worker=2`. Ini tetap **single-node development**, bukan HA; jangan gunakan `down -v` kecuali memang ingin menghapus data. Ollama tidak disertakan; tanpa konfigurasi Ollama, RAG menghasilkan analisis template.
+
+### Master (control plane opsional)
+
+Master dijalankan terpisah dari cluster SOC. Contoh berikut menjalankan Master dan satu cluster development secara lokal. Untuk penggunaan nyata, gunakan HTTPS, token unik, secret manager, dan database Master yang dipelihara; jangan mengekspos token atau private key di Git.
+
+1. Siapkan environment dan buat pasangan kunci Ed25519 sekali saja:
+
+   ```powershell
+   .\.venv\Scripts\Activate.ps1
+   New-Item -ItemType Directory -Force .\secrets\master | Out-Null
+   python -m services.master.keys gen .\secrets\master
+   ```
+
+   Simpan `master_policy.key` secara privat di Master; distribusikan hanya `master_policy.pub` ke cluster.
+2. Jalankan cluster lokal terlebih dahulu di terminal PowerShell pertama:
+
+   ```powershell
+   python run_dev.py
+   ```
+
+   API development tersedia pada `http://127.0.0.1:8000`.
+3. Di terminal PowerShell kedua, atur token Master dan jalankan control plane:
+
+   ```powershell
+   $masterToken = python -c "import secrets; print(secrets.token_urlsafe(32))"
+   $env:MASTER_API_TOKENS = "${masterToken}:admin"
+   $env:MASTER_SIGNING_KEY_FILE = (Resolve-Path .\secrets\master\master_policy.key).Path
+   $env:TOK_C1 = "dev-admin-token"
+   python -m uvicorn app.main:app --app-dir apps/master --host 127.0.0.1 --port 8100
+   ```
+
+   Untuk demo lokal, database Master default disimpan terpisah di `data\master.db`. Simpan nilai `$masterToken`; token ini diperlukan untuk mengelola Master.
+4. Di terminal ketiga, daftarkan cluster ke Master. `pull_token` hanya ditampilkan sekali:
+
+   ```powershell
+   $headers = @{ Authorization = "Bearer $masterToken" }
+   $body = @{
+     id = "c1"
+     name = "Cluster lokal"
+     api_url = "http://127.0.0.1:8000"
+     status_token_env = "TOK_C1"
+     verify_tls = $false
+   } | ConvertTo-Json
+   $cluster = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8100/api/v1/clusters" `
+     -Headers $headers -ContentType "application/json" -Body $body
+   $cluster.pull_token
+   ```
+
+   `verify_tls = $false` hanya untuk contoh lokal HTTP. Gunakan HTTPS dan verifikasi TLS aktif untuk cluster sungguhan.
+5. Hentikan cluster di terminal pertama (`Ctrl+C`), lalu jalankan kembali dengan konfigurasi Master:
+
+   ```powershell
+   $env:MASTER_URL = "http://127.0.0.1:8100"
+   $env:CLUSTER_ID = "c1"
+   $env:MASTER_CLUSTER_TOKEN = "<pull_token-dari-langkah-sebelumnya>"
+   $env:MASTER_POLICY_PUBKEY_FILE = (Resolve-Path .\secrets\master\master_policy.pub).Path
+   python run_dev.py
+   ```
+
+   Cluster akan menarik dan memverifikasi kebijakan Master. Status armada dapat dilihat di `GET /api/v1/clusters`; referensi endpoint, rollout, dan batas kebijakan ada di [`docs/MASTER.md`](docs/MASTER.md). Master development di atas memakai HTTP dan SQLite: **jangan gunakan konfigurasi tersebut untuk produksi**. Master tidak meneruskan event dan bukan HA; cluster tetap berjalan dengan kebijakan terakhir jika Master tidak tersedia.
+
 ## Yang dikerjakan engine (alur)
 
 1. **Ingest** `POST /api/v1/ingest/{source}` (header `X-Ingest-Key`) → validasi ukuran/schema → `event_id = uuid5(tenant|source|source_event_id)` (idempoten) → UTC. Mode `queue`: Redis Streams + consumer group, ack setelah commit, retry terbatas, DLQ + replay.
@@ -28,6 +138,8 @@ Stack penuh (PostgreSQL, Redis Streams, Elasticsearch, Neo4j, worker terpisah): 
 8. **Fast path**: event + skor + outbox dalam satu transaksi → indexer (outbox → Elasticsearch, atau SQL bila ES tidak ada).
 9. **Asinkron**: RAG worker (KB: ATT&CK/playbook via Neo4j/Cypher atau tabel `kb_items`) → Ollama/LLM → validasi rujukan (klaim yang mengutip sumber di luar bukti dibuang) → simpan + outbox. LLM **tidak** mengubah skor / menghapus alert / menulis ke KB.
 10. **kb_sync**: jadwal harian 01:00 Asia/Jakarta, distributed lease + catch-up, diff checksum, rollback. Kandidat teknik baru → antrean review analis.
+
+Retriever membatasi bukti berdasarkan tenant (`tenant_ids` pada data KB; tanpa daftar berarti materi bersama `["*"]`) dan mengabaikan item yang melewati `KB_STALE_DAYS`. Jika Neo4j dikonfigurasi tetapi retrieval gagal, job RAG dicatat dan dicoba ulang; worker tidak diam-diam beralih ke salinan KB lokal.
 
 ## Mencoba SSO tanpa IdP sungguhan
 ```bash

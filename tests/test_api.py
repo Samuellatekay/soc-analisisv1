@@ -48,6 +48,17 @@ def test_validation_and_sort_whitelist(c):
     assert c.get("/api/v1/alerts?page_size=9999", headers=V).status_code == 422
 
 
+def test_alert_search_includes_domain_and_hash(c):
+    from services.common.util import stable_event_id
+
+    ev = {"id": "entity-search-1", "timestamp": "2026-10-30T10:00:00Z", "signature": "Suspicious file",
+          "domain": "malicious.example", "hash": "a" * 64}
+    assert c.post("/api/v1/ingest/generic", json={"events": [ev]}, headers=IK).json()["accepted"] == 1
+    for query in ("malicious.example", "a" * 64):
+        result = c.get("/api/v1/alerts", params={"q": query}, headers=V).json()
+        assert any(row["event_id"] == stable_event_id("default", "generic", "entity-search-1") for row in result["items"])
+
+
 def test_rbac_and_case_workflow(c):
     eid = c.get("/api/v1/alerts", headers=V).json()["items"][0]["event_id"]
     assert c.post("/api/v1/cases", json={"title": "Investigasi SSH"}, headers=V).status_code == 403
@@ -83,6 +94,24 @@ def test_dashboard_audit_and_scoring_verify(c):
     assert c.get("/api/v1/audit", headers=AD).status_code == 200
     v = c.get("/api/v1/config/scoring/verify", headers=A).json()
     assert v["consistency_ratio_recomputed"] < 0.1 and len(v["criteria"]) == 6
+
+
+def test_dashboard_outbox_counts_are_tenant_scoped(c):
+    from sqlalchemy import func, select
+    from services.common.db import session_scope
+    from services.common.models import Event, Outbox
+    from services.common.util import utcnow
+
+    with session_scope() as db:
+        db.add(Event(event_id="other-tenant-event", tenant_id="other", source="test", source_event_id="other-tenant-event",
+                     event_time=utcnow(), triplet_key="other-tenant"))
+        db.add(Outbox(event_id="other-tenant-event", status="pending"))
+    expected = None
+    with session_scope() as db:
+        expected = db.scalar(select(func.count()).select_from(Outbox).join(Event, Event.event_id == Outbox.event_id)
+                             .where(Event.tenant_id == "default", Outbox.status == "pending"))
+    response = c.get("/api/v1/dashboard/summary", headers=V).json()
+    assert response["outbox_pending"] == expected
 
 
 def test_indexer_marks_indexed(c):

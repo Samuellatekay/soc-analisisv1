@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,6 +24,10 @@ def validate(item: dict) -> str | None:
     if not item.get("item_id") or item.get("kind") not in ("technique", "playbook"):
         return "item_id/kind tidak valid"
     d = item.get("data") or {}
+    tenants = d.get("tenant_ids")
+    if tenants is not None and (not isinstance(tenants, list) or not tenants or
+                                any(not isinstance(tenant, str) or not tenant.strip() for tenant in tenants)):
+        return "tenant_ids harus berupa daftar tenant yang tidak kosong"
     if item["kind"] == "technique":
         if not TECH_RE.match(item["item_id"]):
             return f"ID teknik tidak valid {item['item_id']}"
@@ -58,6 +63,7 @@ def import_items(session: Session, items: list[dict], source: str, version: str,
                 upd += 1
             else:
                 cur.version = version
+                cur.updated_at = utcnow()
                 same += 1
         run.added, run.updated, run.unchanged, run.previous_snapshot = add, upd, same, snapshot
         run.status, run.finished_at = "success", utcnow()
@@ -88,11 +94,16 @@ def mirror_to_neo4j(s: Settings, items: list[dict], source: str, version: str) -
     with GraphDatabase.driver(s.neo4j_uri, auth=(s.neo4j_user, s.neo4j_password)) as drv, drv.session() as ses:
         for i in items:
             d = i["data"]
+            access_tenants = d.get("tenant_ids", ["*"])
             if i["kind"] == "technique":
-                ses.run("MERGE (t:Technique {id:$id}) SET t.name=$name, t.description=$desc, t.source=$src, t.version=$ver",
-                        id=d["id"], name=d["name"], desc=d.get("description", ""), src=source, ver=version)
+                ses.run("MERGE (t:Technique {id:$id}) SET t.name=$name, t.description=$desc, t.source=$src, t.version=$ver, "
+                        "t.access_tenants=$tenants, t.updated_at_epoch=$updated",
+                        id=d["id"], name=d["name"], desc=d.get("description", ""), src=source, ver=version,
+                        tenants=access_tenants, updated=time.time())
                 for tac in d["tactics"]:
                     ses.run("MATCH (t:Technique {id:$id}) MERGE (ta:Tactic {name:$tac}) MERGE (t)-[:IN_TACTIC]->(ta)", id=d["id"], tac=tac)
             else:
-                ses.run("MERGE (p:Playbook {id:$id}) SET p.title=$title, p.steps=$steps, p.attack_type=$at, p.source=$src, p.version=$ver",
-                        id=d["id"], title=d["title"], steps=d["steps"], at=d["attack_type"], src=source, ver=version)
+                ses.run("MERGE (p:Playbook {id:$id}) SET p.title=$title, p.steps=$steps, p.attack_type=$at, p.source=$src, "
+                        "p.version=$ver, p.access_tenants=$tenants, p.updated_at_epoch=$updated",
+                        id=d["id"], title=d["title"], steps=d["steps"], at=d["attack_type"], src=source, ver=version,
+                        tenants=access_tenants, updated=time.time())

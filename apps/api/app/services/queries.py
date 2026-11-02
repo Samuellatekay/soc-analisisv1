@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from services.common.models import Event
@@ -38,7 +38,8 @@ def search_events(db: Session, tenant: str, *, q: str | None, source: str | None
         q = q.strip()[:128]
         like = f"%{q}%"
         c.append(or_(Event.event_id == q, Event.source_event_id == q, Event.src_ip == q, Event.dst_ip == q, Event.host.ilike(like), Event.signature.ilike(like),
-                     Event.message.ilike(like), Event.technique_id == q.upper()))
+                     Event.username.ilike(like), Event.message.ilike(like), Event.technique_id == q.upper(),
+                     cast(Event.entities, String).ilike(like)))
     for col, val in ((Event.source, source), (Event.risk_level, risk_level), (Event.disposition, disposition),
                      (Event.processing_status, processing_status), (Event.analysis_status, analysis_status), (Event.technique_id, technique)):
         if val:

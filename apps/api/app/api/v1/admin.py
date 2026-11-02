@@ -87,8 +87,10 @@ def summary(p: Principal = Depends(require("viewer")), db: Session = Depends(get
     return {"total": total, "by_disposition": disp, "by_level": cnt(Event.risk_level), "by_attack_type": cnt(Event.attack_type),
             "by_analysis_status": cnt(Event.analysis_status), "noise_reduction_rate": round(filtered / total, 4) if total else 0.0,
             "top_alerts": [event_summary(e) for e in top],
-            "outbox_pending": db.scalar(select(func.count()).select_from(Outbox).where(Outbox.status == "pending")),
-            "outbox_failed": db.scalar(select(func.count()).select_from(Outbox).where(Outbox.status == "failed"))}
+            "outbox_pending": db.scalar(select(func.count()).select_from(Outbox).join(Event, Event.event_id == Outbox.event_id)
+                                        .where(Event.tenant_id == p.tenant_id, Outbox.status == "pending")),
+            "outbox_failed": db.scalar(select(func.count()).select_from(Outbox).join(Event, Event.event_id == Outbox.event_id)
+                                       .where(Event.tenant_id == p.tenant_id, Outbox.status == "failed"))}
 
 
 @router.get("/config/scoring")

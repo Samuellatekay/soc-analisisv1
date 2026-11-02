@@ -100,7 +100,19 @@ def process_one(s: Settings | None = None) -> bool:
         _finish(jid, too_old)
         return True
     # fase 2: retrieval + LLM DI LUAR transaksi (tidak menahan lock database)
-    docs = get_retriever(s).retrieve(ev.technique_id, ev.attack_type, ev.tactic)
+    try:
+        docs = get_retriever(s).retrieve(ev.tenant_id, ev.technique_id, ev.attack_type, ev.tactic)
+    except Exception as e:  # noqa: BLE001  kegagalan graph/retrieval harus retry, bukan mematikan worker
+        log.warning("retrieval analisis %s gagal (percobaan %s): %s", jid, attempts, e)
+        err = repr(e)[:500]
+        def retrieval_failed(db, job, ev):
+            job.error = err
+            if attempts >= MAX_ATTEMPTS:
+                job.status, ev.analysis_status = "failed", "failed"
+            else:
+                job.next_attempt_at = utcnow() + timedelta(seconds=30 * 2 ** attempts)
+        _finish(jid, retrieval_failed)
+        return True
     if not docs:
         def nodocs(db, job, ev):
             job.status, job.model, job.prompt_version, job.sources = "insufficient_evidence", "none", s.prompt_version, []

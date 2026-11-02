@@ -53,6 +53,36 @@ def test_importer_idempotent_validate_rollback():
         assert r4.status == "failed"                              # terlalu banyak item invalid -> rilis ditolak
 
 
+def test_kb_retrieval_enforces_tenant_scope_and_freshness():
+    from datetime import timedelta
+    from services.common.models import KBItem
+    from services.rag_worker.retrieval.graph import DBRetriever
+
+    with session_scope() as s:
+        s.add_all([
+            KBItem(item_id="T9876", kind="technique", data={"id": "T9876", "name": "Alpha only", "tactics": ["Discovery"],
+                   "tenant_ids": ["alpha"]}, source="test", version="1"),
+            KBItem(item_id="T9877", kind="technique", data={"id": "T9877", "name": "Shared", "tactics": ["Discovery"]},
+                   source="test", version="1"),
+            KBItem(item_id="T9878", kind="technique", data={"id": "T9878", "name": "Stale", "tactics": ["Discovery"]},
+                   source="test", version="1", updated_at=utcnow() - timedelta(days=4)),
+        ])
+
+    retriever = DBRetriever(stale_days=3)
+    assert {d.source_id for d in retriever.retrieve("alpha", "T9876", "test", None)} == {"T9876"}
+    assert not retriever.retrieve("beta", "T9876", "test", None)
+    assert {d.source_id for d in retriever.retrieve("alpha", "T9877", "test", None)} == {"T9877"}
+    assert {d.source_id for d in retriever.retrieve("beta", "T9877", "test", None)} == {"T9877"}
+
+
+def test_kb_import_rejects_invalid_tenant_scope():
+    from services.kb_sync.importer import validate
+
+    item = {"item_id": "T9879", "kind": "technique", "data": {"id": "T9879", "name": "Scoped",
+            "tactics": ["Discovery"], "tenant_ids": []}}
+    assert validate(item) == "tenant_ids harus berupa daftar tenant yang tidak kosong"
+
+
 def test_parse_stix_skips_revoked():
     b = {"objects": [
         {"type": "attack-pattern", "name": "A", "external_references": [{"source_name": "mitre-attack", "external_id": "T1001"}],
