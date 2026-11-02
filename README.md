@@ -83,7 +83,7 @@ Mode ini menjalankan API, UI, database, antrean, dan worker sebagai layanan terp
    test -e infra/config/connectors.json || cp infra/config/connectors.example.json infra/config/connectors.json
    ```
 
-3. Edit `.env`: ganti password, token API, dan ingest key contoh. Jangan commit `.env` atau secret ke Git.
+3. Edit `.env`: ganti password, token API, dan ingest key contoh. Untuk menghindari konektor berjalan dua kali, set `EMBEDDED_CONNECTORS=false`; service `connectors` Compose akan menjalankannya. Jangan commit `.env` atau secret ke Git.
 4. Bangun dan jalankan seluruh layanan:
 
    ```bash
@@ -103,7 +103,7 @@ Mode ini menjalankan API, UI, database, antrean, dan worker sebagai layanan terp
    docker compose -f infra/docker-compose.yml --env-file .env down
    ```
 
-Perintah `down` mempertahankan data volume. **Jangan gunakan `down -v`** kecuali memang ingin menghapus data. Ollama tidak otomatis dijalankan oleh Compose; RAG tetap dapat menggunakan analisis template bila Ollama belum dikonfigurasi.
+Perintah `down` mempertahankan data volume. **Jangan gunakan `down -v`** kecuali memang ingin menghapus data. Ollama tidak otomatis dijalankan oleh Compose; RAG tetap dapat menggunakan analisis template bila Ollama belum dikonfigurasi. Backup aktif pada contoh `.env`; sebelum menjalankan stack, siapkan kunci lalu mount file tersebut ke service `backup` pada path `BACKUP_ENCRYPTION_KEY_FILE`. Path secret tidak otomatis dipasang oleh Compose.
 
 ### 3. Master — pengelola cluster (opsional)
 
