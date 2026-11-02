@@ -32,11 +32,11 @@ CREATE TABLE audit_log (
 	PRIMARY KEY (id)
 );
 
+CREATE INDEX ix_audit_log_tenant_id ON audit_log (tenant_id);
+
 CREATE INDEX ix_audit_log_action ON audit_log (action);
 
 CREATE INDEX ix_audit_log_ts ON audit_log (ts);
-
-CREATE INDEX ix_audit_log_tenant_id ON audit_log (tenant_id);
 
 CREATE TABLE cases (
 	case_id VARCHAR(36) NOT NULL, 
@@ -55,6 +55,20 @@ CREATE TABLE cases (
 CREATE INDEX ix_cases_status ON cases (status);
 
 CREATE INDEX ix_cases_tenant_id ON cases (tenant_id);
+
+CREATE TABLE connector_configs (
+	tenant_id VARCHAR(64) NOT NULL,
+	name VARCHAR(64) NOT NULL,
+	type VARCHAR(32) NOT NULL,
+	enabled BOOLEAN NOT NULL,
+	poll_seconds INTEGER NOT NULL,
+	batch_size INTEGER NOT NULL,
+	initial_lookback_hours INTEGER NOT NULL,
+	params JSON NOT NULL,
+	updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+	PRIMARY KEY (tenant_id, name),
+	CONSTRAINT uq_connector_configs_name UNIQUE (name)
+);
 
 CREATE TABLE connector_state (
 	name VARCHAR(64) NOT NULL, 
@@ -111,31 +125,31 @@ CREATE TABLE events (
 	CONSTRAINT uq_event_dedupe UNIQUE (tenant_id, source, source_event_id)
 );
 
-CREATE INDEX ix_events_triplet_key ON events (triplet_key);
-
-CREATE INDEX ix_events_host ON events (host);
-
 CREATE INDEX ix_events_tenant_id ON events (tenant_id);
 
-CREATE INDEX ix_events_attack_type ON events (attack_type);
+CREATE INDEX ix_events_disposition ON events (disposition);
 
 CREATE INDEX ix_events_src_ip ON events (src_ip);
 
 CREATE INDEX ix_events_dst_ip ON events (dst_ip);
 
+CREATE INDEX ix_events_triplet_key ON events (triplet_key);
+
+CREATE INDEX ix_events_event_time ON events (event_time);
+
+CREATE INDEX ix_events_attack_type ON events (attack_type);
+
+CREATE INDEX ix_events_tenant_time ON events (tenant_id, event_time);
+
+CREATE INDEX ix_events_host ON events (host);
+
 CREATE INDEX ix_events_risk_score ON events (risk_score);
 
 CREATE INDEX ix_events_processing_status ON events (processing_status);
 
-CREATE INDEX ix_events_tenant_time ON events (tenant_id, event_time);
-
-CREATE INDEX ix_events_technique_id ON events (technique_id);
-
 CREATE INDEX ix_events_risk_level ON events (risk_level);
 
-CREATE INDEX ix_events_event_time ON events (event_time);
-
-CREATE INDEX ix_events_disposition ON events (disposition);
+CREATE INDEX ix_events_technique_id ON events (technique_id);
 
 CREATE TABLE kb_candidates (
 	id SERIAL NOT NULL, 
@@ -199,9 +213,9 @@ CREATE TABLE outbox (
 	PRIMARY KEY (id)
 );
 
-CREATE INDEX ix_outbox_event_id ON outbox (event_id);
-
 CREATE INDEX ix_outbox_status ON outbox (status);
+
+CREATE INDEX ix_outbox_event_id ON outbox (event_id);
 
 CREATE TABLE policy_state (
 	id INTEGER NOT NULL, 

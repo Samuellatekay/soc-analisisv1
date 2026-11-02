@@ -2,7 +2,13 @@
 
 Satu kelas per produk (`services/engine/adapters/vendors.py`) + satu fungsi pemetaan (`mappings.py`). Semua konektor: poll terjadwal, paginasi, retry+backoff (429/5xx/jaringan, menghormati `Retry-After`), refresh token pada 401, checkpoint (tabel `connector_state`) yang **hanya maju setelah event diterima pipeline/antrean**, overlap baca-ulang (default 120 dtk) dengan dedupe `event_id` idempoten, dan status kesehatan di UI (menu *Konektor*) / `GET /api/v1/connectors`.
 
-## Cara pakai
+## Konfigurasi melalui UI
+
+Admin membuka menu **Konektor** untuk menambah, mengubah, menguji, atau menonaktifkan sumber alert. Perubahan disimpan ke database dan worker memuatnya otomatis. Field rahasia hanya menyimpan nama environment variable, misalnya `CS_CLIENT_SECRET`; siapkan nilainya sebagai environment atau Kubernetes Secret `soc-connectors` sebelum mengaktifkan konektor. Rahasia tidak dikirim kembali ke UI. Pada Kubernetes, rollout ulang pod `api` dan `connectors` setelah menambah atau merotasi env Secret.
+
+## Mode file/CLI
+
+Konfigurasi file tetap tersedia untuk deployment yang dikelola lewat GitOps dan pengujian CLI:
 ```bash
 cp infra/config/connectors.example.json infra/config/connectors.json      # edit, set enabled=true
 export CS_CLIENT_SECRET=...                                                # secret hanya lewat env / NAMA_FILE

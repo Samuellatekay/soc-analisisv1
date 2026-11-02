@@ -62,6 +62,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: soc-config
+            - secretRef:
+                name: soc-connectors
+                optional: true
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -134,9 +137,16 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
+            - name: connectors-config
+              mountPath: /app/infra/config/connectors.json
+              subPath: connectors.json
+              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: connectors-config
+          configMap:
+            name: soc-connectors-config
         - name: tmp
           emptyDir:
             sizeLimit: 256Mi

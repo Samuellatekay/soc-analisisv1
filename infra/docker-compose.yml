@@ -34,6 +34,7 @@ services:
     <<: *py
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir apps/api
     depends_on: [postgres, redis, elasticsearch]
+    volumes: [../infra/config/connectors.json:/app/infra/config/connectors.json:ro]
   engine:
     <<: *py
     command: python -m services.engine.main

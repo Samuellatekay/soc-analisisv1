@@ -323,3 +323,36 @@ def test_one_broken_connector_does_not_take_down_others(tmp_path):
     assert names == ["ok-qr"]
     with session_scope() as db:
         assert "konfigurasi tidak valid" in db.get(ConnectorState, "broken-cs").last_error
+
+
+def test_connector_loop_picks_up_configuration_added_while_running(monkeypatch):
+    clock = [0.0]
+    processed = []
+
+    class Stop:
+        stopped = False
+
+        def is_set(self):
+            return self.stopped
+
+        def wait(self, seconds):
+            clock[0] += seconds
+            self.stopped = clock[0] >= 8
+
+    class Http:
+        def close(self):
+            pass
+
+    class DynamicConnector:
+        name = "ui-dynamic"
+        client = type("Client", (), {"http": Http()})()
+
+    def reload():
+        return [(DynamicConnector(), {"name": "ui-dynamic", "enabled": True, "poll_seconds": 60})]
+
+    monkeypatch.setattr(runner.time, "time", lambda: clock[0])
+    monkeypatch.setattr(runner, "run_once", lambda conn, cfg, sink: processed.append(conn.name) or {"error": None})
+
+    runner.loop([], lambda *_args: (0, 0, []), stop=Stop(), reload_connectors=reload)
+
+    assert processed == ["ui-dynamic"]

@@ -209,7 +209,14 @@ Sebelum menerapkan:
    ```
 
    File env harus memuat URL dan kredensial runtime, tetapi jangan sertakan `BACKUP_ENCRYPTION_KEY` di dalamnya. Untuk overlay Master, sertakan juga `--from-file=MASTER_POLICY_PUBKEY=/secure/path/master_policy.pub` dan `MASTER_CLUSTER_TOKEN` di file env. Gunakan secret manager sink/CSI untuk menyuplai secret di operasi berkelanjutan. Jangan menyimpan file rahasia atau Secret hasil render ke Git.
-7. Sesuaikan `connectors-config-patch.yaml` jika konektor diperlukan; semua konektor mati secara default. Atur kredensial vendor melalui Secret `soc-connectors`, bukan di ConfigMap.
+7. Konektor dapat ditambah/diedit admin dari menu **Konektor**; konfigurasi UI tersimpan di database dan worker menerapkannya otomatis. Siapkan kredensial vendor di Secret `soc-connectors`, bukan di formulir atau ConfigMap. Contoh untuk CrowdStrike:
+
+   ```bash
+   kubectl -n soc-cluster-01 create secret generic soc-connectors \
+     --from-file=CS_CLIENT_SECRET=/secure/path/cs_client_secret
+   ```
+
+   Di UI isi nama environment `CS_CLIENT_SECRET`, bukan nilai aslinya. Pada rotasi atau penambahan environment secret, rollout ulang pod `api` dan `connectors`. `connectors-config-patch.yaml` tetap dapat dipakai sebagai konfigurasi awal/managed-by-Git; konfigurasi tenant dari UI akan menimpa nama yang sama.
 8. Sesuaikan label namespace `ingress-nginx` pada NetworkPolicy bila ingress controller Anda memakai namespace berbeda, lalu validasi dan terapkan overlay:
 
    ```bash

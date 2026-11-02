@@ -211,6 +211,21 @@ class ConnectorState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
+class ConnectorConfig(Base):
+    """Konfigurasi konektor yang dapat dikelola admin dan dibaca seluruh worker."""
+    __tablename__ = "connector_configs"
+    __table_args__ = (UniqueConstraint("name", name="uq_connector_configs_name"),)
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    type: Mapped[str] = mapped_column(String(32))
+    enabled: Mapped[bool] = mapped_column(default=False)
+    poll_seconds: Mapped[int] = mapped_column(Integer, default=60)
+    batch_size: Mapped[int] = mapped_column(Integer, default=500)
+    initial_lookback_hours: Mapped[int] = mapped_column(Integer, default=24)
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
 class PolicyState(Base):
     """Kebijakan terpasang di cluster ini (satu baris). Diisi policy agent setelah verifikasi tanda tangan; engine membacanya (TTL) — tidak pernah memanggil Master."""
     __tablename__ = "policy_state"

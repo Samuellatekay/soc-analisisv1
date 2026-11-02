@@ -77,9 +77,14 @@ async def lifespan(app: FastAPI):
     if s.embedded_workers and s.embedded_connectors:
         from services.engine.adapters import runner
         conns = runner.load_connectors(s)
-        if conns:
-            threading.Thread(target=runner.loop, args=(conns, runner.default_sink(s), stop), daemon=True, name="connectors").start()
-            log.info("konektor aktif: %s", [c.name for c, _ in conns])
+        threading.Thread(
+            target=runner.loop,
+            args=(conns, runner.default_sink(s), stop),
+            kwargs={"reload_connectors": lambda: runner.load_connectors(s)},
+            daemon=True,
+            name="connectors",
+        ).start()
+        log.info("pemantau konfigurasi konektor aktif: %s", [c.name for c, _ in conns])
     _start_policy_agent(stop)
     yield
     stop.set()

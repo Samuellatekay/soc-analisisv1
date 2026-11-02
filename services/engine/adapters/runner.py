@@ -17,7 +17,7 @@ from typing import Callable
 
 from services.common.config import Settings, get_settings, read_secret
 from services.common.db import init_db, session_scope
-from services.common.models import ConnectorState
+from services.common.models import ConnectorConfig, ConnectorState
 from services.common.util import utcnow
 
 from .base import Connector
@@ -38,14 +38,30 @@ def _record_config_error(c: dict, msg: str) -> None:
         log.exception("gagal mencatat error konfigurasi konektor %s", c.get("name"))
 
 
-def load_connectors(s: Settings, secret=read_secret, only_enabled: bool = True, name: str | None = None) -> list[tuple[Connector, dict]]:
-    """Konektor yang salah konfigurasi DILEWATI (dicatat di status) agar tidak menjatuhkan konektor lain.
-    Tipe tidak dikenal = salah ketik konfigurasi -> ValueError."""
+def connector_configs(s: Settings) -> list[dict]:
+    """Merge DB-managed configurations over file-based defaults."""
     p = Path(s.connectors_config)
-    if not p.exists():
-        return []
+    configs = json.loads(p.read_text()).get("connectors", []) if p.exists() else []
+    merged = {(c.get("tenant_id", "default"), c["name"]): c for c in configs}
+    with session_scope() as db:
+        for saved in db.query(ConnectorConfig).all():
+            merged[(saved.tenant_id, saved.name)] = {
+                "name": saved.name,
+                "type": saved.type,
+                "tenant_id": saved.tenant_id,
+                "enabled": saved.enabled,
+                "poll_seconds": saved.poll_seconds,
+                "batch_size": saved.batch_size,
+                "initial_lookback_hours": saved.initial_lookback_hours,
+                "params": saved.params or {},
+            }
+    return list(merged.values())
+
+
+def load_connectors(s: Settings, secret=read_secret, only_enabled: bool = True, name: str | None = None) -> list[tuple[Connector, dict]]:
+    """Load DB-managed configs over file defaults; skip invalid params without stopping other connectors."""
     out = []
-    for c in json.loads(p.read_text()).get("connectors", []):
+    for c in connector_configs(s):
         if (only_enabled and not c.get("enabled", False)) or (name and c["name"] != name):
             continue
         cls = REGISTRY.get(c["type"])
@@ -142,19 +158,53 @@ def run_once(conn: Connector, cfg: dict, sink: Sink, max_pages: int = 20, batch_
     return summary
 
 
-def loop(conns: list[tuple[Connector, dict]], sink: Sink, stop: threading.Event | None = None) -> None:
+def loop(
+    conns: list[tuple[Connector, dict]],
+    sink: Sink,
+    stop: threading.Event | None = None,
+    reload_connectors: Callable[[], list[tuple[Connector, dict]]] | None = None,
+) -> None:
     stop = stop or threading.Event()
     nxt = {c.name: 0.0 for c, _ in conns}
+    current = {c.name: (c, cfg, json.dumps(cfg, sort_keys=True, default=str)) for c, cfg in conns}
+    reload_at = time.time() + 5
     while not stop.is_set():
         now = time.time()
-        for conn, cfg in conns:
-            if now < nxt[conn.name]:
+        if reload_connectors and now >= reload_at:
+            reload_at = now + 5
+            try:
+                refreshed = reload_connectors()
+                updated = {}
+                for new, cfg in refreshed:
+                    name = new.name
+                    signature = json.dumps(cfg, sort_keys=True, default=str)
+                    existing = current.get(name)
+                    if existing and existing[2] == signature:
+                        new.client.http.close()
+                        updated[name] = existing
+                    else:
+                        updated[name] = (new, cfg, signature)
+                if {key: value[2] for key, value in updated.items()} != {key: value[2] for key, value in current.items()}:
+                    for name, (old, _, signature) in current.items():
+                        replacement = updated.get(name)
+                        if replacement is None or replacement[2] != signature:
+                            old.client.http.close()
+                    nxt = {name: nxt.get(name, 0.0) if name in current and current[name][2] == value[2] else 0.0
+                           for name, value in updated.items()}
+                    current = updated
+                    log.info("konfigurasi konektor diperbarui: %s", sorted(current))
+            except Exception:  # noqa: BLE001
+                log.exception("gagal memuat ulang konfigurasi konektor; konfigurasi aktif dipertahankan")
+        now = time.time()
+        for name, (conn, cfg, _) in list(current.items()):
+            if now < nxt.get(name, 0):
                 continue
             res = run_once(conn, cfg, sink)
             poll = int(cfg.get("poll_seconds", 60))
             with session_scope() as db:
-                fails = db.get(ConnectorState, conn.name).consecutive_failures
-            nxt[conn.name] = time.time() + min(900, poll * (2 ** min(fails, 4))) if res["error"] else time.time() + poll
+                state = db.get(ConnectorState, conn.name)
+                fails = state.consecutive_failures if state else 0
+            nxt[name] = time.time() + min(900, poll * (2 ** min(fails, 4))) if res["error"] else time.time() + poll
         stop.wait(1.0)
 
 
@@ -176,14 +226,14 @@ def main():
             raise SystemExit(f"GAGAL: {e}")
         return
     conns = load_connectors(s)
-    if not conns:
-        raise SystemExit("tidak ada konektor enabled di " + s.connectors_config)
     sink = default_sink(s)
     if a.once:
+        if not conns:
+            raise SystemExit("tidak ada konektor enabled di " + s.connectors_config)
         for conn, cfg in conns:
             print(run_once(conn, cfg, sink))
     else:
-        loop(conns, sink)
+        loop(conns, sink, reload_connectors=lambda: load_connectors(s))
 
 
 if __name__ == "__main__":

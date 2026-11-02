@@ -176,6 +176,49 @@ def test_connectors_api_hides_params_and_respects_tenant(tmp_path):
         s.connectors_config = old
 
 
+def test_connector_config_ui_api_is_admin_scoped_and_persistent(c):
+    from services.common.db import session_scope
+    from services.common.models import ConnectorConfig
+
+    name = "ui-config-cs"
+    payload = {
+        "name": name, "type": "crowdstrike", "enabled": False, "poll_seconds": 90,
+        "batch_size": 300, "initial_lookback_hours": 48,
+        "params": {"client_id": "client-id", "client_secret_env": "CS_CLIENT_SECRET",
+                   "base_url": "https://api.crowdstrike.com"},
+    }
+    try:
+        assert c.get("/api/v1/connectors/catalog", headers=AD).status_code == 200
+        assert c.get("/api/v1/connectors/config", headers=A).status_code == 403
+        assert c.put(f"/api/v1/connectors/config/{name}", json=payload, headers=A).status_code == 403
+
+        created = c.put(f"/api/v1/connectors/config/{name}", json=payload, headers=AD)
+        assert created.status_code == 200
+        assert created.json()["params"]["client_secret_env"] == "CS_CLIENT_SECRET"
+        assert any(item["name"] == name for item in c.get("/api/v1/connectors/config", headers=AD).json())
+        assert c.get("/api/v1/connectors/config", headers=OTHER).json() == []
+
+        updated_payload = {**payload, "enabled": True, "poll_seconds": 120}
+        assert c.put(f"/api/v1/connectors/config/{name}", json=updated_payload, headers=AD).json()["poll_seconds"] == 120
+        assert c.put(f"/api/v1/connectors/config/{name}", json={**payload, "params": {
+            "client_id": "client-id", "client_secret_env": "raw secret value",
+            "base_url": "https://api.crowdstrike.com"}}, headers=AD).status_code == 422
+        assert c.put(f"/api/v1/connectors/config/{name}", json={**payload, "params": {
+            "client_id": "client-id", "client_secret_env": "CS_CLIENT_SECRET",
+            "base_url": "https://user:password@api.example.com"}}, headers=AD).status_code == 422
+        assert c.put(f"/api/v1/connectors/config/{name}", json=payload, headers=OTHER).status_code == 409
+
+        from services.common.config import get_settings
+        from services.engine.adapters.runner import connector_configs
+        config = next(item for item in connector_configs(get_settings()) if item["name"] == name)
+        assert config["enabled"] and config["poll_seconds"] == 120
+    finally:
+        with session_scope() as db:
+            saved = db.get(ConnectorConfig, ("default", name))
+            if saved:
+                db.delete(saved)
+
+
 def test_search_matches_vendor_event_id(c):
     ingest(c, 1, p="vend")
     r = c.get("/api/v1/alerts?q=api-vend0", headers=V).json()
