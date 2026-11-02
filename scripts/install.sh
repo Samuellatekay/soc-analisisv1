@@ -6,6 +6,10 @@ PYTHON="${PYTHON:-python3}"
 VENV="$ROOT/.venv"
 WEB="$ROOT/apps/web"
 
+if [[ "$EUID" -eq 0 && "$(stat -c '%U' "$ROOT")" != root ]]; then
+    exec "$ROOT/scripts/as-repo-owner.sh" bash "$ROOT/scripts/install.sh"
+fi
+
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
     echo "Python 3.12+ tidak ditemukan. Pasang Python lalu jalankan ulang." >&2
     exit 1
@@ -17,12 +21,8 @@ fi
 }
 
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-    if [[ -x "$HOME/.local/bin/node" && -x "$HOME/.local/bin/npm" ]]; then
-        export PATH="$HOME/.local/bin:$PATH"
-    else
-        echo "Node.js 18+ dan npm tidak ditemukan. Pasang Node.js lalu jalankan ulang." >&2
-        exit 1
-    fi
+    echo "Node.js 18+ dan npm tidak ditemukan. Pasang Node.js lalu jalankan ulang." >&2
+    exit 1
 fi
 
 node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 18 ? 0 : 1)' || {

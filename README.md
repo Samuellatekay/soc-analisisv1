@@ -10,7 +10,7 @@ make setup      # Python venv + dependency backend + frontend + build UI
 make dev        # jalankan aplikasi di http://localhost:8000
 ```
 
-Persyaratan: Python 3.12+, Node.js 18+, dan npm. Installer tidak memerlukan `sudo` dan tidak mengubah `.env`. Setelah server berjalan, buka alamat tersebut dan login dengan token development `dev-analyst-token` (admin: `dev-admin-token`, viewer: `dev-viewer-token`). Tekan `Ctrl+C` untuk berhenti.
+Persyaratan: Python 3.12+, Node.js 18+, dan npm. Installer memakai akun pemilik repo (termasuk bila `make setup` dipanggil dari shell root), tidak mengubah `.env`, dan tidak memerlukan akses sudo. Setelah server berjalan, buka alamat tersebut dan login dengan token development `dev-analyst-token` (admin: `dev-admin-token`, viewer: `dev-viewer-token`). Tekan `Ctrl+C` untuk berhenti.
 
 Jika mengakses dari komputer lain, gunakan `http://<IP-VM>:8000` dan pastikan port 8000 diizinkan oleh firewall VM/cloud. Untuk membuat data contoh, jalankan di terminal lain: `.venv/bin/python scripts/generate_demo_data.py --api http://localhost:8000`.
 
