@@ -108,7 +108,7 @@ class FileVulnProvider:
 
 class OpenCTIProvider:  # pragma: no cover - butuh server live
     name = "opencti"
-    QUERY = """query($s:String){ indicators(search:$s, first:5){ edges{ node{ id name confidence x_opencti_score valid_until updated_at } } } }"""
+    QUERY = """query($s:String){ indicators(search:$s, first:5){ edges{ node{ confidence x_opencti_score updated_at } } } }"""
 
     def __init__(self, url: str, token: str, timeout: float):
         self.url, self.token, self.timeout = url.rstrip("/"), token, timeout
@@ -117,10 +117,18 @@ class OpenCTIProvider:  # pragma: no cover - butuh server live
         r = httpx.post(f"{self.url}/graphql", json={"query": self.QUERY, "variables": {"s": indicator}},
                        headers={"Authorization": f"Bearer {self.token}"}, timeout=self.timeout)
         r.raise_for_status()
+        payload = r.json()
+        if payload.get("errors"):
+            raise RuntimeError("OpenCTI GraphQL query failed")
+        indicators = (payload.get("data") or {}).get("indicators")
+        if not isinstance(indicators, dict) or not isinstance(indicators.get("edges"), list):
+            raise RuntimeError("OpenCTI GraphQL response has an unexpected shape")
         now = utcnow()
         out: list[Fact] = []
-        for e in r.json().get("data", {}).get("indicators", {}).get("edges", []):
-            n = e["node"]
+        for e in indicators["edges"]:
+            n = e.get("node") if isinstance(e, dict) else None
+            if not isinstance(n, dict):
+                raise RuntimeError("OpenCTI GraphQL indicator has an unexpected shape")
             score = (n.get("x_opencti_score") or 0) / 100.0
             if score >= 0.5:
                 out.append(Fact("IOC", indicator.lower(), "verdict", None, None, "malicious" if score >= 0.75 else "suspicious",

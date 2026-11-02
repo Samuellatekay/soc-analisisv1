@@ -18,6 +18,19 @@ Untuk tes: `make test`; untuk tes UI: `cd apps/web && npm test`. Untuk menjalank
 
 `GET /api/v1/health` adalah liveness check. Gunakan `GET /api/v1/ready` untuk readiness: memeriksa koneksi database dan Redis bila ingest memakai mode queue, serta melaporkan status Elasticsearch/Neo4j bila dikonfigurasi.
 
+### Smoke test integrasi staging
+
+Dengan Elasticsearch dan Neo4j Compose sudah berjalan, uji query terhadap layanan nyata dari dalam network Compose (tidak perlu membuka port database ke host):
+
+```bash
+docker compose -f infra/docker-compose.yml --env-file .env up -d elasticsearch neo4j
+docker compose -f infra/docker-compose.yml --env-file .env run --rm --no-deps \
+  -v ./scripts:/app/scripts:ro api \
+  python /app/scripts/staging_smoke.py --only elasticsearch,neo4j
+```
+
+Smoke test membuat index/dokumen sementara di Elasticsearch lalu menghapus index tersebut; di Neo4j ia membuat node sementara untuk menguji skema `Technique`/`Tactic`, query Cypher retriever, freshness, dan isolasi tenant, lalu membersihkannya. Hanya jalankan pada staging yang diizinkan. Tambahkan `ollama,opencti` setelah URL, model, dan token yang diperlukan sudah dikonfigurasi. Endpoint kosong akan dilaporkan sebagai `SKIP`, sedangkan konfigurasi ada tetapi gagal akan membuat tes gagal. Jangan menaruh token OpenCTI di command line atau Git; gunakan secret file.
+
 Stack penuh (PostgreSQL, Redis Streams, Elasticsearch, Neo4j, worker terpisah): `cp .env.example .env && docker compose -f infra/docker-compose.yml --env-file .env up --build` — lihat "Status verifikasi".
 
 ## Instalasi menurut mode operasi
@@ -191,7 +204,8 @@ Sesuai rancangan spesifikasi. Penyimpangan kecil yang disengaja: `services/commo
 | Impor MITRE ATT&CK resmi (STIX) | Diuji sungguhan (706 teknik) |
 | UI React | Type-check + build lolos; tampilan belum diuji visual lintas peramban |
 | **PostgreSQL 16 + Redis (nyata)** | **Diuji**: seluruh suite (145 tes), migrasi SQL, `pg_dump`/`pg_restore`, Redis Streams multi-proses, uji `kill -9` worker, DUMP/RESTORE Redis. Menemukan & memperbaiki bug konkurensi yang tidak muncul di SQLite (lihat `docs/LOADTEST.md`) |
-| Elasticsearch, Neo4j, Ollama, OpenCTI GraphQL, docker-compose | **Ditulis tetapi belum dijalankan** terhadap layanan sungguhan — uji di staging. Query ES & Cypher mengasumsikan skema tertentu; sesuaikan |
+| Elasticsearch 8.14.3 + Neo4j 5 (Docker Compose staging) | **Diuji langsung** lewat Compose network: ES create mapping, upsert, refresh, search lalu cleanup; Cypher `Technique`/`Tactic`/`Playbook`, freshness, dan filter tenant lewat retriever lulus. Docker Compose `up` serta `run --no-deps` berhasil. Gunakan `scripts/staging_smoke.py` untuk mengulang tes pada staging Anda |
+| Ollama, OpenCTI GraphQL | **Belum diuji live**: konfigurasi endpoint saat tes kosong/tidak valid. Smoke test tersedia; OpenCTI provider kini gagal eksplisit untuk error GraphQL/response schema yang tidak sesuai, dan query membuang field yang tidak dipakai. Isi URL/model/token melalui secret file lalu jalankan `scripts/staging_smoke.py --only ollama,opencti` |
 | GLPI REST | Provider ada (`services/engine/enrichment/glpi.py`): initSession/search/killSession sesuai dokumentasi GLPI, pemetaan field berbasis konfigurasi (`infra/config/glpi.example.json`), nilai tak terpetakan diabaikan. Diuji dengan respons tiruan; **belum** dengan instance GLPI nyata. ID field kritikalitas/sensitivitas bersifat khas instalasi (lihat `--list-options`) |
 | Konektor Splunk ES, Sentinel, QRadar, CrowdStrike, SentinelOne, Defender, Cortex XDR, Elasticsearch/Wazuh, syslog CEF/LEEF | **Ada** (polling + checkpoint + retry/rate-limit + status di UI). Diuji dengan respons tiruan bentuk-dokumentasi dan CrowdStrike lewat HTTP nyata ke server tiruan. **Belum diuji terhadap tenant vendor sungguhan**; 5 dari 8 endpoint dicocokkan dengan dokumentasi, Splunk/QRadar/Elasticsearch ditulis dari pengetahuan dokumentasi. Rincian & batasan: `docs/CONNECTORS.md` |
 | BERT | Default `HeuristicReasoner` (leksikal, **bukan** BERT). Tersedia `scripts/export_training_data.py` + `scripts/train_bert.py` (split bebas-kebocoran per-triplet/kronologis, metrik, kalibrasi ambang yang melindungi alert asli — **diuji**). **Loop pelatihan dijalankan sungguhan** (torch 2.15/transformers 5.22) pada BERT mini acak: plumbing, penyimpanan, kalibrasi, dan pembacaan oleh engine diuji (menemukan & memperbaiki bug **label terbalik** + pengaman collapse). **Kualitas pada BERT-base dan data alert asli belum pernah diukur** (tanpa akses Hub/data). Label harus dari tiket/analis, bukan dari `disposition` sistem sendiri |
