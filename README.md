@@ -47,20 +47,44 @@ Atur variabel berikut di `.env`:
 
 `LLM_PROVIDER=auto` adalah nilai bawaan untuk menjaga kompatibilitas: bila `OLLAMA_URL` dan `OLLAMA_MODEL` terisi, aplikasi memakai Ollama; jika tidak, aplikasi memakai analisis template tanpa menghubungi provider cloud.
 
-Contoh Gemini:
+#### Contoh lengkap: mengaktifkan Gemini
 
-```dotenv
-LLM_PROVIDER=gemini
-LLM_MODEL=gemini-2.5-flash
-LLM_API_KEY=isi_api_key_gemini_di_file_.env
+1. Dari folder utama aplikasi, buka file konfigurasi:
+
+   ```bash
+   nano .env
+   ```
+
+   Jika file `.env` belum ada, buat dari template terlebih dahulu dengan `cp .env.example .env`.
+2. Tambahkan atau ubah baris berikut di `.env`:
+
+   ```dotenv
+   LLM_PROVIDER=gemini
+   LLM_MODEL=gemini-2.5-flash
+   LLM_API_KEY=GANTI_DENGAN_API_KEY_DARI_GOOGLE_AI_STUDIO
+   ```
+
+   Ganti seluruh nilai `GANTI_DENGAN_API_KEY_DARI_GOOGLE_AI_STUDIO` dengan API key milik Anda. Teks tersebut hanya placeholder, bukan key yang berfungsi. Simpan file (`Ctrl+O`, `Enter`), lalu keluar (`Ctrl+X`). Jangan menaruh key di `.env.example`, Git, atau chat.
+3. Jalankan atau restart aplikasi agar konfigurasi dibaca:
+
+   ```bash
+   make dev
+   ```
+
+   Jika aplikasinya sudah berjalan, hentikan dulu dengan `Ctrl+C`, lalu jalankan lagi `make dev`.
+
+Untuk Docker Compose, setelah mengubah `.env`, bangun ulang dan jalankan worker RAG:
+
+```bash
+docker compose -f infra/docker-compose.yml --env-file .env up --build -d rag_worker
 ```
 
-Contoh OpenAI:
+Contoh OpenAI API (gunakan API key OpenAI, bukan password/langganan ChatGPT):
 
 ```dotenv
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-4.1-mini
-LLM_API_KEY=isi_api_key_openai_di_file_.env
+LLM_API_KEY=GANTI_DENGAN_API_KEY_OPENAI
 ```
 
 Contoh endpoint kompatibel OpenAI:
@@ -69,7 +93,7 @@ Contoh endpoint kompatibel OpenAI:
 LLM_PROVIDER=openai_compatible
 LLM_BASE_URL=https://provider.example/v1
 LLM_MODEL=nama-model-dari-provider
-LLM_API_KEY=isi_api_key_provider_di_file_.env
+LLM_API_KEY=GANTI_DENGAN_API_KEY_PROVIDER
 ```
 
 Setelah mengubah `.env`, restart aplikasi Single dengan `make dev`, atau buat ulang container Compose dengan `docker compose -f infra/docker-compose.yml --env-file .env up --build -d`. Untuk key yang tidak boleh ditulis langsung di `.env`, gunakan `LLM_API_KEY_FILE` dan pastikan file tersebut tersedia di proses worker. Di Compose, mount file itu ke service `rag_worker` dan isi `LLM_API_KEY_FILE` dengan path di dalam container. File `.env` tidak boleh dimasukkan ke Git.
