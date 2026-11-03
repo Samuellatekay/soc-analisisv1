@@ -743,6 +743,8 @@ spec:
                 secretKeyRef:
                   name: soc-runtime
                   key: MASTER_POLICY_PUBKEY
+            - name: MASTER_CA_CERT_FILE
+              value: /run/master-ca/ca.crt
           resources:
             requests:
               cpu: 50m
@@ -756,9 +758,18 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
+            - name: master-ca
+              mountPath: /run/master-ca
+              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: master-ca
+          configMap:
+            name: soc-master-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi

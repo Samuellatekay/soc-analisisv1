@@ -31,9 +31,19 @@ mkdir -p secrets/master
 chmod 700 secrets/master
 .venv/bin/python -m services.master.keys gen secrets/master
 .venv/bin/python -m services.master.keys gen-config secrets/master/master_config.key
+sudo bash scripts/generate-master-tls.sh 192.168.33.140
 ```
 
-Simpan kedua private key di penyimpanan secret terenkripsi dan backup terpisah. `master_policy.key` menandatangani payload; `master_config.key` mengenkripsi seluruh payload konfigurasi sebelum ditulis ke database Master. Kehilangan kunci konfigurasi membuat konfigurasi tersimpan tidak dapat dipulihkan. Jangan commit file kunci.
+Ganti alamat terakhir dengan IP/hostname yang akan dipakai node untuk menghubungi Master. Script membuat CA privat dan sertifikat HTTPS di `secrets/master/tls`; perintah menolak menimpa direktori TLS yang sudah ada. Simpan `ca.key`, `master_policy.key`, dan `master_config.key` di penyimpanan rahasia terenkripsi dengan backup terpisah. `master_policy.key` menandatangani payload; `master_config.key` mengenkripsi seluruh payload konfigurasi sebelum ditulis ke database Master. Kehilangan kunci konfigurasi membuat konfigurasi tersimpan tidak dapat dipulihkan. Jangan commit file kunci.
+
+`ca.key` adalah private key CA dan tidak dipasang ke container mana pun. Compose hanya memasang dua private key Master ke API, serta sertifikat dan private key server ke Nginx HTTPS.
+
+Container API berjalan sebagai UID non-root `10001`; berikan akses grup baca hanya pada dua key API (GID `1998` dipasang sebagai grup tambahan Compose):
+
+```bash
+sudo chgrp 1998 secrets/master/master_policy.key secrets/master/master_config.key
+sudo chmod 640 secrets/master/master_policy.key secrets/master/master_config.key
+```
 
 Tambahkan Master UI credentials dan database Master ke `.env` (gunakan token acak yang berbeda dari token cluster):
 
@@ -48,10 +58,15 @@ MASTER_DATABASE_URL=postgresql+psycopg://user:password@db.example.com:5432/soc_m
 docker compose -f infra/docker-compose.yml --env-file .env --profile master up --build -d master master-web
 ```
 
-Buka `http://localhost:8081` dan masuk dengan salah satu token Master. Daftarkan cluster; pull token hanya ditampilkan sekali. Simpan token di file rahasia berizin `0600`, lalu buat Secret bootstrap sebelum menerapkan overlay:
+Buka `https://192.168.33.140:8443` (sesuaikan alamatnya) dan masuk dengan salah satu token Master. Port `8081` hanya mengarahkan browser ke HTTPS. Untuk menghilangkan peringatan sertifikat pada browser, pasang CA privat `secrets/master/tls/ca.crt` sebagai CA tepercaya dengan memverifikasi fingerprint SHA-256 yang dicetak saat pembuatan sertifikat. Jangan mengirim `ca.key` ke cluster/node; hanya sertifikat publik `ca.crt` yang dibagikan.
+
+Daftarkan cluster; pull token hanya ditampilkan sekali. Simpan token di file rahasia berizin `0600`, lalu buat Secret bootstrap sebelum menerapkan overlay:
 
 ```bash
 kubectl create namespace soc-cluster-01 --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n soc-cluster-01 create configmap soc-master-ca \
+  --from-file=ca.crt=secrets/master/tls/ca.crt \
+  --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n soc-cluster-01 create secret generic soc-runtime \
   --from-file=MASTER_CLUSTER_TOKEN=/secure/path/cluster-pull-token \
   --from-file=MASTER_POLICY_PUBKEY=secrets/master/master_policy.pub

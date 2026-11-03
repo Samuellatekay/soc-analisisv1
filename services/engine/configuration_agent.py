@@ -62,7 +62,8 @@ class KubernetesClient:
 
 class ConfigAgent:
     def __init__(self, master_url: str, cluster_id: str, token: str, public_key: str,
-                 kubernetes: KubernetesClient, transport=None, timeout: float = 10):
+                 kubernetes: KubernetesClient, transport=None, timeout: float = 10,
+                 verify: bool | str = True):
         if not all((master_url, cluster_id, token, public_key)):
             raise ValueError("MASTER_URL, CLUSTER_ID, MASTER_CLUSTER_TOKEN, MASTER_POLICY_PUBKEY wajib")
         self.url = master_url.rstrip("/")
@@ -72,12 +73,16 @@ class ConfigAgent:
         self.http = httpx.Client(
             timeout=timeout, transport=transport,
             headers={"Authorization": f"Bearer {token}"},
+            verify=verify,
         )
 
     @classmethod
     def from_env(cls, transport=None, kubernetes=None):
         key_path = os.getenv("MASTER_POLICY_PUBKEY_FILE", "")
         public_key = Path(key_path).read_text() if key_path and Path(key_path).exists() else os.getenv("MASTER_POLICY_PUBKEY", "")
+        ca_path = os.getenv("MASTER_CA_CERT_FILE", "")
+        if ca_path and not Path(ca_path).is_file():
+            raise ValueError(f"sertifikat CA Master tidak ditemukan: {ca_path}")
         return cls(
             os.getenv("MASTER_URL", ""),
             os.getenv("CLUSTER_ID", ""),
@@ -85,6 +90,7 @@ class ConfigAgent:
             public_key,
             kubernetes or KubernetesClient(),
             transport,
+            verify=ca_path or True,
         )
 
     def _current_version(self) -> int:

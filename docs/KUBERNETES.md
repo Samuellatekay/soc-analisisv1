@@ -34,7 +34,7 @@ Pilih nilai contoh untuk deployment ini:
 | Namespace | `soc-cluster-01` |
 | Cluster ID di Master | `soc-cluster-01` |
 | Host UI | `soc-cluster-01.example.com` |
-| Master URL yang dapat dijangkau Pod | `https://master.example.com` |
+| Master URL yang dapat dijangkau Pod | `https://192.168.33.140:8443` |
 | Image tag | `v1.0.0` |
 
 Ganti contoh-contoh tersebut dengan nilai lingkungan Anda. `CLUSTER_ID` harus sama persis dengan ID cluster yang didaftarkan di Master.
@@ -47,7 +47,7 @@ Untuk VM dua node ini, `192.168.33.140` adalah **VM master/control-plane Kuberne
 
 > **Lab saja:** contoh ini tidak mengaktifkan TLS atau autentikasi registry. Jangan expose port 5000 ke internet atau jaringan yang tidak dipercaya. Untuk production, gunakan registry dengan HTTPS, autentikasi, dan storage yang dibackup.
 
-Registry container di port `5000` berbeda dari aplikasi **SOC Master** di port `8100`: Kubernetes control-plane mengatur node/Pod, SOC Master mengatur konfigurasi SOC, sedangkan registry hanya menyimpan image container.
+Registry container di port `5000` berbeda dari **SOC Master**: API Master mendengarkan pada port internal `8100`, sedangkan UI/API yang diakses agent melalui Compose menggunakan HTTPS pada port host `8443` (CA privat). Kubernetes control-plane mengatur node/Pod; SOC Master mengatur konfigurasi SOC; registry menyimpan image container.
 
 ### 3.1 Jalankan registry pada control-plane
 
@@ -236,9 +236,11 @@ data:
   ELASTICSEARCH_URL: https://es.example.com:9200
   NEO4J_URI: neo4j+s://neo4j.example.com:7687
   LLM_PROVIDER: none
-  MASTER_URL: https://master.example.com
+  MASTER_URL: https://192.168.33.140:8443
   CLUSTER_ID: soc-cluster-01
 ```
+
+Ganti `192.168.33.140:8443` dengan alamat HTTPS Master yang dapat dijangkau dari node, dan `soc-cluster-01` dengan ID cluster unik sesuai registrasi. Untuk CA privat yang dibuat dalam [panduan Master](./MASTER.md), buat ConfigMap `soc-master-ca` dari file `ca.crt` di langkah namespace berikut; configuration-agent memverifikasi sertifikat Master menggunakan CA itu. Jangan gunakan HTTP atau mematikan verifikasi TLS.
 
 Di `ingress-patch.yaml`, `soc-cluster-01.example.com` adalah **hostname contoh**, bukan domain yang otomatis tersedia. Ganti dengan domain/subdomain yang Anda miliki, misalnya `soc.perusahaananda.com`, dan arahkan DNS record-nya ke IP ingress/load balancer cluster. Host pada `spec.tls[].hosts` dan `spec.rules[].host` harus sama; sertifikat TLS juga harus berlaku untuk hostname tersebut.
 
@@ -250,6 +252,9 @@ Buat namespace dengan Pod Security Restricted. Jika namespace sudah ada, perinta
 
 ```bash
 kubectl create namespace soc-cluster-01 --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n soc-cluster-01 create configmap soc-master-ca \
+  --from-file=ca.crt=secrets/master/tls/ca.crt \
+  --dry-run=client -o yaml | kubectl apply -f -
 kubectl label namespace soc-cluster-01 \
   pod-security.kubernetes.io/enforce=restricted \
   pod-security.kubernetes.io/audit=restricted \

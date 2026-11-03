@@ -62,6 +62,7 @@ services:
     build: { context: .., dockerfile: infra/docker/python.Dockerfile }
     profiles: ["master"]
     env_file: ../.env
+    group_add: ["1998"]
     command: uvicorn app.main:app --app-dir apps/master --host 0.0.0.0 --port 8100
     environment:
       MASTER_DATABASE_URL: ${MASTER_DATABASE_URL:-sqlite:////app/data/master.db}
@@ -70,12 +71,17 @@ services:
       MASTER_CONFIG_ENCRYPTION_KEY_FILE: /run/secrets/master_config.key
     volumes:
       - masterdata:/app/data
-      - ../secrets/master:/run/secrets:ro
+      - ../secrets/master/master_policy.key:/run/secrets/master_policy.key:ro
+      - ../secrets/master/master_config.key:/run/secrets/master_config.key:ro
   master-web:
     build: { context: .., dockerfile: infra/docker/web.Dockerfile }
     profiles: ["master"]
-    ports: ["8081:8080"]
-    volumes: [./docker/master-nginx.conf:/etc/nginx/conf.d/default.conf:ro]
+    ports: ["8081:8080", "8443:8443"]
+    group_add: ["1999"]
+    volumes:
+      - ./docker/master-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../secrets/master/tls/master.crt:/run/tls/master.crt:ro
+      - ../secrets/master/tls/master.key:/run/tls/master.key:ro
     depends_on: [master]
   web:
     build: { context: .., dockerfile: infra/docker/web.Dockerfile }
