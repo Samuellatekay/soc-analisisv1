@@ -296,6 +296,45 @@ curl -fsS http://127.0.0.1:8100/openapi.json \
 
 Jika path tidak muncul, Master yang sedang berjalan belum memuat endpoint. Perbarui/restart Master dengan versi repo yang berisi `POST /api/v1/clusters/{cluster_id}/rotate-token`, lalu ulangi pemeriksaan. Jika `curl` menyatakan connection refused, Master tidak berjalan di port `8100`; mulai Master menggunakan cara dan konfigurasi/database yang sama seperti sebelumnya. Jangan memulai instance kedua pada port yang sudah dipakai.
 
+#### Memeriksa token admin Master
+
+Token admin tidak dapat dibaca kembali dari database Master. Token yang benar adalah token yang dikonfigurasi untuk proses Master melalui `MASTER_API_TOKENS` (format `token:admin`) atau `MASTER_API_TOKENS_FILE`. Jangan gunakan `MASTER_CLUSTER_TOKEN`/pull token cluster untuk autentikasi admin, dan jangan menjalankan `grep`/`cat` yang mencetak token ke terminal atau membagikan nilainya.
+
+Uji token yang Anda simpan dengan endpoint `/api/v1/me`. Masukkan token admin Master saat diminta; input tidak ditampilkan. Perintah hanya mencetak role dan status, bukan token:
+
+```bash
+python3 - <<'PY'
+import getpass
+import json
+import sys
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+token = getpass.getpass("Token admin Master: ")
+if not token:
+    sys.exit("Token kosong; tidak ada request yang dikirim.")
+
+request = Request(
+    "http://127.0.0.1:8100/api/v1/me",
+    headers={"Authorization": f"Bearer {token}"},
+)
+try:
+    with urlopen(request, timeout=5) as response:
+        identity = json.load(response)
+except HTTPError as error:
+    sys.exit(f"Master menolak token (HTTP {error.code}); periksa token dan konfigurasi Master aktif.")
+except URLError as error:
+    sys.exit(f"Master tidak dapat dijangkau: {error.reason}")
+
+role = identity.get("role")
+print(f"Token valid; role={role}")
+if role != "admin":
+    sys.exit("Token valid, tetapi bukan admin. Gunakan token ber-role admin untuk rotasi.")
+PY
+```
+
+Jika hasilnya HTTP 401, token yang dimasukkan tidak ada pada konfigurasi proses Master yang sedang berjalan atau salah. Pastikan token yang Anda simpan sama dengan salah satu entri admin di konfigurasi yang dipakai **proses aktif**, lalu restart Master jika konfigurasinya baru diubah. Jika role `viewer`, token valid tetapi tidak berhak melakukan rotasi. Pemeriksaan ini tidak mengubah token atau data cluster.
+
 Setelah path muncul, masukkan token admin Master secara tersembunyi ketika diminta. Jalankan sebagai root agar file token dapat disimpan di `/root`:
 
 ```bash
