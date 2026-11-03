@@ -201,12 +201,33 @@ kubectl label namespace soc-cluster-01 \
   pod-security.kubernetes.io/warn=restricted --overwrite
 ```
 
-Buat TLS Secret sesuai host pada ingress:
+### TLS untuk lab
+
+`/secure/path/tls.crt` dan `/secure/path/tls.key` adalah placeholder, bukan file bawaan. Untuk lab, buat sertifikat self-signed. `HOST` harus sama dengan host di `ingress-patch.yaml`:
+
+```bash
+HOST=soc-cluster-01.example.com
+sudo install -d -m 700 /root/soc-certs
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout "/root/soc-certs/$HOST.key" \
+  -out "/root/soc-certs/$HOST.crt" \
+  -subj "/CN=$HOST" \
+  -addext "subjectAltName=DNS:$HOST"
+
+kubectl -n soc-cluster-01 create secret tls soc-analisis-tls \
+  --cert="/root/soc-certs/$HOST.crt" \
+  --key="/root/soc-certs/$HOST.key"
+```
+
+Sertifikat self-signed membuat browser menampilkan peringatan dan hanya cocok untuk uji coba. Untuk production, gunakan sertifikat dari CA tepercaya atau cert-manager, dan arahkan DNS host Ingress ke alamat Ingress controller. Jaga file private key; jangan commit ke Git atau kirim melalui chat.
+
+Jika Secret TLS sudah ada dan ingin memperbaruinya, perintah berikut membuat manifest langsung melalui pipe (tidak menyimpan Secret ke file):
 
 ```bash
 kubectl -n soc-cluster-01 create secret tls soc-analisis-tls \
-  --cert=/secure/path/tls.crt \
-  --key=/secure/path/tls.key
+  --cert="/root/soc-certs/$HOST.crt" \
+  --key="/root/soc-certs/$HOST.key" \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 Buat file environment Secret di luar repository dengan permission terbatas, misalnya `/secure/path/soc-runtime.env`. Isi key yang diperlukan oleh workload:

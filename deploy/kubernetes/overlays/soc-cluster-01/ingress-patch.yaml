@@ -1,0 +1,11 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: soc
+spec:
+  tls:
+    - hosts:
+        - soc-cluster-01.example.com
+      secretName: soc-analisis-tls
+  rules:
+    - host: soc-cluster-01.example.com
