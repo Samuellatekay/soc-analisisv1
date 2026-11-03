@@ -6,10 +6,10 @@ resources:
   - policy-agent.yaml
 images:
   - name: soc-analisis-api
-    newName: registry.example.com/soc/soc-analisis-api
+    newName: 192.168.33.140:5000/soc/soc-analisis-api
     newTag: replace-with-release
   - name: soc-analisis-web
-    newName: registry.example.com/soc/soc-analisis-web
+    newName: 192.168.33.140:5000/soc/soc-analisis-web
     newTag: replace-with-release
 patches:
   - path: namespace-patch.yaml
