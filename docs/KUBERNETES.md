@@ -198,7 +198,9 @@ data:
   CLUSTER_ID: soc-cluster-01
 ```
 
-Sesuaikan `ingress-patch.yaml` dengan DNS dan nama Secret TLS. NetworkPolicy pada base mengasumsikan ingress controller berada pada namespace `ingress-nginx`; sesuaikan label selector jika berbeda.
+Di `ingress-patch.yaml`, `soc-cluster-01.example.com` adalah **hostname contoh**, bukan domain yang otomatis tersedia. Ganti dengan domain/subdomain yang Anda miliki, misalnya `soc.perusahaananda.com`, dan arahkan DNS record-nya ke IP ingress/load balancer cluster. Host pada `spec.tls[].hosts` dan `spec.rules[].host` harus sama; sertifikat TLS juga harus berlaku untuk hostname tersebut.
+
+Jika tidak punya domain, Ingress tetap bisa dikonfigurasi dengan IP hanya jika ingress controller dan sertifikat TLS Anda mendukung akses berbasis IP; sertifikat harus memiliki IP tersebut sebagai Subject Alternative Name (SAN). Sertifikat contoh di bawah ini membuat SAN bertipe DNS, jadi tidak cocok untuk alamat IP. Untuk lab tanpa domain, cara yang lebih sederhana adalah tidak mengandalkan Ingress dan mengakses UI melalui port-forward (lihat bagian validasi di bawah). Jangan biarkan `soc-cluster-01.example.com` seolah-olah domain nyata. NetworkPolicy pada base mengasumsikan ingress controller berada pada namespace `ingress-nginx`; sesuaikan label selector jika berbeda.
 
 ## 5. Siapkan namespace dan Secret
 
@@ -231,6 +233,8 @@ kubectl -n soc-cluster-01 create secret tls soc-analisis-tls \
 ```
 
 Sertifikat self-signed membuat browser menampilkan peringatan dan hanya cocok untuk uji coba. Untuk production, gunakan sertifikat dari CA tepercaya atau cert-manager, dan arahkan DNS host Ingress ke alamat Ingress controller. Jaga file private key; jangan commit ke Git atau kirim melalui chat.
+
+Jika memakai IP sebagai Ingress host, jangan memakai perintah sertifikat DNS di atas tanpa perubahan: sertifikat harus dibuat dengan IP sebagai SAN (`IP:<alamat>`), dan dukungan IP host bergantung pada ingress controller/browser. Jika ini hanya lab lokal tanpa domain, lewati konfigurasi Ingress/TLS dan gunakan port-forward UI seperti di bagian validasi.
 
 Jika Secret TLS sudah ada dan ingin memperbaruinya, perintah berikut membuat manifest langsung melalui pipe (tidak menyimpan Secret ke file):
 
@@ -644,7 +648,19 @@ Di terminal lain:
 curl --fail http://127.0.0.1:8000/api/v1/ready
 ```
 
-Kemudian buka `https://soc-cluster-01.example.com`, masuk dengan token API yang dibuat, dan uji ingest dari klien yang diizinkan. Di Master UI, pastikan status cluster dan versi konfigurasi berubah menjadi sinkron. Jika mengaktifkan autoscaling, periksa resource KEDA dan HPA:
+Untuk membuka UI tanpa domain/Ingress, jalankan port-forward Web pada VM Kubernetes:
+
+```bash
+kubectl -n soc-cluster-01 port-forward service/web 8080:8080
+```
+
+Biarkan proses berjalan. Jika browser berada di VM yang sama, buka `http://127.0.0.1:8080`. Jika browser berada di komputer lain, buat SSH tunnel dari komputer tersebut ke VM (ganti username SSH bila bukan `mira`):
+
+```bash
+ssh -L 8080:127.0.0.1:8080 mira@192.168.33.140
+```
+
+Biarkan SSH tetap tersambung, lalu buka `http://127.0.0.1:8080` di browser komputer. `192.168.33.140` adalah IP control-plane pada contoh lingkungan ini. Untuk akses langsung melalui Ingress, gunakan hostname dengan DNS/TLS yang benar atau IP hanya jika controller dan sertifikat mendukungnya. Masuk dengan token API yang dibuat dan uji ingest dari klien yang diizinkan. Di Master UI, pastikan status cluster dan versi konfigurasi berubah menjadi sinkron. Jika mengaktifkan autoscaling, periksa resource KEDA dan HPA:
 
 ```bash
 kubectl -n soc-cluster-01 get scaledobjects,triggerauthentications,hpa
