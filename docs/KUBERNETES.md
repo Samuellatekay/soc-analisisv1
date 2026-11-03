@@ -577,6 +577,43 @@ kubectl -n soc-cluster-01 rollout status deployment/configuration-agent --timeou
 kubectl -n soc-cluster-01 get pods,svc,ingress,pvc
 ```
 
+### Memantau rollout yang tertahan
+
+Pesan seperti `Waiting for deployment "api" rollout to finish: 1 out of 3 new replicas have been updated...` berarti rollout masih berlangsung: Deployment menginginkan tiga replica baru, tetapi baru satu yang sudah diperbarui/siap. Pesan itu sendiri belum menunjukkan penyebab. Perintah `rollout status` menunggu; biarkan berjalan dan gunakan **terminal kedua** untuk melihat perkembangan:
+
+```bash
+kubectl -n soc-cluster-01 get deployment api -w
+```
+
+Di terminal pemantauan lain, lihat Pod dan node tempat Pod dijadwalkan:
+
+```bash
+kubectl -n soc-cluster-01 get pods -o wide -w
+```
+
+Tekan `Ctrl+C` untuk berhenti memantau; ini tidak membatalkan rollout. Untuk mencari penyebab replica tertahan, lihat status Deployment, Pod, ReplicaSet, dan event terbaru:
+
+```bash
+kubectl -n soc-cluster-01 describe deployment api
+kubectl -n soc-cluster-01 get pods -o wide
+kubectl -n soc-cluster-01 get events --sort-by=.lastTimestamp
+```
+
+Pilih nama Pod `api` yang belum `Ready` dari output `get pods`, lalu periksa detail dan log-nya (ganti `<pod-api>` dengan nama Pod sebenarnya):
+
+```bash
+kubectl -n soc-cluster-01 describe pod <pod-api>
+kubectl -n soc-cluster-01 logs <pod-api> --all-containers=true --tail=100
+```
+
+Jika container sempat crash/restart, periksa log container sebelumnya:
+
+```bash
+kubectl -n soc-cluster-01 logs <pod-api> --all-containers=true --previous --tail=100
+```
+
+Petunjuk umum: `Pending` biasanya terkait penjadwalan atau PVC; `ImagePullBackOff`/`ErrImagePull` biasanya terkait image, registry, atau akses node; `CrashLoopBackOff` biasanya perlu ditelusuri lewat log; `Running` tetapi belum `Ready` biasanya perlu diperiksa lewat readiness probe, event, dan log. Jangan menghapus Pod atau mengulang rollout sebelum memahami event/error; controller akan mengelola replica secara otomatis.
+
 Periksa log Pod yang tidak siap:
 
 ```bash
