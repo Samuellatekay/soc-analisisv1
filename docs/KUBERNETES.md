@@ -287,31 +287,71 @@ sudo cp /home/mira/soc-analisisv1/secrets/master/master_policy.pub \
 sudo chmod 644 /root/soc-cluster-01/master_policy.pub
 ```
 
-Pastikan Master API berjalan dan environment `MASTER_ADMIN_TOKEN` berisi token admin Master. Simpan token cluster yang baru langsung ke file (perintah tidak mencetak token ke terminal):
+Pastikan Master API berjalan dan environment `MASTER_ADMIN_TOKEN` berisi token admin Master. Simpan token cluster yang baru langsung ke file. Perintah ini berhenti jika request atau parsing gagal dan tidak membuat file token kosong:
 
 ```bash
-set -o pipefail
-curl --fail-with-body -sS -X POST \
+set -euo pipefail
+umask 077
+TOKEN_RESPONSE=$(curl --fail-with-body -sS -X POST \
   -H "Authorization: Bearer $MASTER_ADMIN_TOKEN" \
-  http://127.0.0.1:8100/api/v1/clusters/c1/rotate-token \
-  | jq -er '.pull_token' > /root/soc-cluster-01/cluster-pull-token
-sudo chmod 600 /root/soc-cluster-01/cluster-pull-token
+  http://127.0.0.1:8100/api/v1/clusters/c1/rotate-token)
+PULL_TOKEN=$(printf '%s' "$TOKEN_RESPONSE" | jq -er '.pull_token')
+printf '%s' "$PULL_TOKEN" > /root/soc-cluster-01/cluster-pull-token
+chmod 600 /root/soc-cluster-01/cluster-pull-token
+unset TOKEN_RESPONSE PULL_TOKEN
 test -s /root/soc-cluster-01/cluster-pull-token
 ```
 
-Ganti `c1` jika ID cluster di Master berbeda. Simpan file token dengan izin terbatas:
-
-Sekarang buat Kubernetes Secret dari file env dan tiga file rahasia/key tambahan. Jalankan untuk **instalasi baru**:
+Ganti `c1` jika ID cluster di Master berbeda. Endpoint rotasi harus tersedia pada versi Master yang sedang berjalan. Jika mendapatkan HTTP 404, **jangan lanjut membuat Secret dan jangan gunakan file token kosong**. Periksa apakah route terdaftar:
 
 ```bash
-kubectl -n soc-cluster-01 create secret generic soc-runtime \
-  --from-env-file=/root/soc-cluster-01/soc-runtime.env \
-  --from-file=MASTER_CLUSTER_TOKEN=/root/soc-cluster-01/cluster-pull-token \
-  --from-file=MASTER_POLICY_PUBKEY=/root/soc-cluster-01/master_policy.pub \
-  --from-file=BACKUP_ENCRYPTION_KEY=/root/soc-cluster-01/backup.key
+curl -fsS http://127.0.0.1:8100/openapi.json \
+  | jq -r '.paths | keys[] | select(contains("/rotate-token"))'
 ```
 
-`--from-env-file` membuat satu entry Secret untuk setiap baris `KEY=VALUE`. Setiap `--from-file=KEY=PATH` membuat entry dengan nama key di sebelah kiri dan isi file di sebelah kanan. Semua entry digabung menjadi Secret Kubernetes bernama `soc-runtime`; workload API, worker, policy-agent, dan configuration-agent membacanya.
+Jika tidak ada output, Master yang sedang berjalan belum memuat endpoint rotasi. Perbarui source code ke versi repo yang memuat `POST /api/v1/clusters/{cluster_id}/rotate-token`, restart proses/service Master, lalu periksa OpenAPI lagi. Jika route ada tetapi request tetap 404, pastikan `c1` adalah ID cluster yang terdaftar di Master. Rotasi langsung membatalkan token lama; simpan token baru dan update Secret SOC sebelum rollout.
+
+Jika perintah sebelumnya pernah gagal setelah `>` membuat file token, cek file tanpa menampilkan isinya:
+
+```bash
+test -s /root/soc-cluster-01/cluster-pull-token \
+  && echo "token file berisi data" \
+  || echo "token file kosong/tidak ada; jangan gunakan"
+```
+
+### Membuat Secret `soc-runtime`
+
+`kubectl create secret generic` **tidak mendukung** `--from-env-file` dan `--from-file` dalam perintah yang sama. Buat file env sementara berizin root-only yang menggabungkan isi file env dan ketiga key, lalu buat Secret dari file gabungan.
+
+Pastikan tiga key berikut **tidak** ada di `soc-runtime.env`: `MASTER_CLUSTER_TOKEN`, `MASTER_POLICY_PUBKEY`, `BACKUP_ENCRYPTION_KEY`. Jalankan dari shell root setelah semua file sumber tersedia:
+
+```bash
+set -euo pipefail
+umask 077
+for source_file in \
+  /root/soc-cluster-01/soc-runtime.env \
+  /root/soc-cluster-01/cluster-pull-token \
+  /root/soc-cluster-01/master_policy.pub \
+  /root/soc-cluster-01/backup.key; do
+  if [ ! -s "$source_file" ]; then
+    echo "File kosong/tidak ada: $source_file" >&2
+    exit 1
+  fi
+done
+COMBINED_ENV=$(mktemp /root/soc-cluster-01/soc-runtime-combined.XXXXXX)
+trap 'rm -f "$COMBINED_ENV"' EXIT
+cat /root/soc-cluster-01/soc-runtime.env > "$COMBINED_ENV"
+printf '\nMASTER_CLUSTER_TOKEN=%s\nMASTER_POLICY_PUBKEY=%s\nBACKUP_ENCRYPTION_KEY=%s\n' \
+  "$(tr -d '\r\n' < /root/soc-cluster-01/cluster-pull-token)" \
+  "$(tr -d '\r\n' < /root/soc-cluster-01/master_policy.pub)" \
+  "$(tr -d '\r\n' < /root/soc-cluster-01/backup.key)" \
+  >> "$COMBINED_ENV"
+
+kubectl -n soc-cluster-01 create secret generic soc-runtime \
+  --from-env-file="$COMBINED_ENV"
+```
+
+File gabungan dihapus otomatis saat shell selesai dan hanya dapat dibaca root selama proses berlangsung. `--from-env-file` membuat satu entry Secret untuk tiap baris `KEY=VALUE`; workload API, worker, policy-agent, dan configuration-agent membaca Secret `soc-runtime`.
 
 Periksa bahwa Secret ada tanpa menampilkan isinya:
 
