@@ -506,47 +506,38 @@ Jangan memakai `kubectl get secret -o yaml` atau mencetak isi file env ke log/ch
 
 Autoscaling Engine melalui Redis Streams memerlukan KEDA 2.16+ pada cluster. HPA API/Web juga memerlukan metrics-server. Pastikan extension API KEDA tersedia **sebelum mengaktifkan autoscaling di Master**.
 
+### 6.1. Instal Helm di VM pengelola cluster
 
-6.1. Instal Helm Terlebih Dahulu
+Perintah `helm repo ...` hanya tersedia setelah Helm terinstal. Pada Ubuntu, jalankan:
 
-Pilih salah satu cara instalasi di bawah ini (disarankan menggunakan manajer paket resmi):
-Opsi A: Menggunakan Apt (Disarankan untuk Debian/Ubuntu)
 ```bash
-curl https://baltocdn.com | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
-sudo apt-get install apt-transport-https --yes
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com all main" | sudo tee /etc/apt/sources.list.p/helm-stable-debian.list
-sudo apt-get update
-sudo apt-get install helm -yes
+sudo snap install helm --classic
+helm version
 ```
 
-6.2. Jalankan Ulang Perintah KEDA Anda
+Jalankan pada VM yang memiliki akses ke Kubernetes, dengan kubeconfig yang benar. Jika `snap` tidak tersedia, instal Helm melalui metode resmi yang disetujui untuk OS Anda. Pastikan `helm version` berhasil sebelum lanjut. Pesan `helm: command not found` berarti Helm belum terpasang atau belum ada di `PATH`; error CRD `NotFound` setelahnya adalah akibat KEDA belum terinstal.
 
-Setelah Helm berhasil terinstal, Anda bisa menjalankan kembali rangkaian perintah Anda sebelumnya:
-```bash
-# Tambahkan repo KEDA dan update
-helm repo add kedacore https://kedacore.github.io/charts
-helm repo update
+### 6.2. Pasang dan verifikasi KEDA
 
-# Instal KEDA v2.16.0
-helm upgrade --install keda kedacore/keda \
-  --namespace keda --create-namespace --version 2.16.0
-
-# Verifikasi CRD dan API Services (Sekarang seharusnya sudah muncul)
-kubectl get crd scaledobjects.keda.sh triggerauthentications.keda.sh
-kubectl get apiservices | grep keda
-
-```
-
-Contoh pemasangan KEDA 2.16.0 melalui Helm:
+Setelah Helm terpasang, jalankan:
 
 ```bash
 helm repo add kedacore https://kedacore.github.io/charts
 helm repo update
 helm upgrade --install keda kedacore/keda \
   --namespace keda --create-namespace --version 2.16.0
+```
+
+Tunggu controller KEDA siap, lalu periksa Pod, CRD, dan API service:
+
+```bash
+kubectl -n keda rollout status deployment/keda-operator --timeout=5m
+kubectl -n keda get pods
 kubectl get crd scaledobjects.keda.sh triggerauthentications.keda.sh
 kubectl get apiservices | grep keda
 ```
+
+Jika rollout timeout atau CRD/API service belum tersedia, jangan aktifkan autoscaling. Periksa status dan log Pod di namespace `keda` terlebih dahulu.
 
 Untuk production, pilih versi KEDA yang disetujui dan dipelihara organisasi Anda. Jika KEDA belum terpasang, biarkan autoscaling nonaktif di Master. Autoscaling menambah/mengurangi Pod, bukan node; node autoscaling memerlukan Cluster Autoscaler dari penyedia cluster.
 
