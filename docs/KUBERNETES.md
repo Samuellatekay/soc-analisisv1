@@ -287,31 +287,42 @@ sudo cp /home/mira/soc-analisisv1/secrets/master/master_policy.pub \
 sudo chmod 644 /root/soc-cluster-01/master_policy.pub
 ```
 
-Pastikan Master API berjalan dan environment `MASTER_ADMIN_TOKEN` berisi token admin Master. Simpan token cluster yang baru langsung ke file. Perintah ini berhenti jika request atau parsing gagal dan tidak membuat file token kosong:
+Pastikan Master API sudah berjalan di port `8100` dan endpoint rotasi tersedia. Jalankan pemeriksaan ini di terminal kedua; terminal pertama harus tetap menjalankan Master:
+
+```bash
+curl -fsS http://127.0.0.1:8100/openapi.json \
+  | jq -r '.paths | keys[] | select(. == "/api/v1/clusters/{cluster_id}/rotate-token")'
+```
+
+Jika path tidak muncul, Master yang sedang berjalan belum memuat endpoint. Perbarui/restart Master dengan versi repo yang berisi `POST /api/v1/clusters/{cluster_id}/rotate-token`, lalu ulangi pemeriksaan. Jika `curl` menyatakan connection refused, Master tidak berjalan di port `8100`; mulai Master menggunakan cara dan konfigurasi/database yang sama seperti sebelumnya. Jangan memulai instance kedua pada port yang sudah dipakai.
+
+Setelah path muncul, masukkan token admin Master secara tersembunyi ketika diminta. Jalankan sebagai root agar file token dapat disimpan di `/root`:
 
 ```bash
 set -euo pipefail
 umask 077
-TOKEN_RESPONSE=$(curl --fail-with-body -sS -X POST \
-  -H "Authorization: Bearer $MASTER_ADMIN_TOKEN" \
-  http://127.0.0.1:8100/api/v1/clusters/c1/rotate-token)
-PULL_TOKEN=$(printf '%s' "$TOKEN_RESPONSE" | jq -er '.pull_token')
-printf '%s' "$PULL_TOKEN" > /root/soc-cluster-01/cluster-pull-token
-chmod 600 /root/soc-cluster-01/cluster-pull-token
-unset TOKEN_RESPONSE PULL_TOKEN
-test -s /root/soc-cluster-01/cluster-pull-token
+OUT=/root/soc-cluster-01/cluster-pull-token
+TMP=$(mktemp /root/soc-cluster-01/cluster-pull-token.XXXXXX)
+trap 'rm -f "$TMP"; unset MASTER_ADMIN_TOKEN' EXIT
+
+read -rsp 'Token admin Master: ' MASTER_ADMIN_TOKEN
+printf '\n'
+test -n "$MASTER_ADMIN_TOKEN"
+curl --fail-with-body -sS -X POST \
+  -H "Authorization: Bearer ${MASTER_ADMIN_TOKEN}" \
+  http://127.0.0.1:8100/api/v1/clusters/c1/rotate-token \
+  | jq -er '.pull_token | select(type == "string" and length > 0)' > "$TMP"
+test -s "$TMP"
+mv "$TMP" "$OUT"
+chmod 600 "$OUT"
+unset MASTER_ADMIN_TOKEN
+trap - EXIT
+echo "Token pull berhasil disimpan tanpa ditampilkan."
 ```
 
-Ganti `c1` jika ID cluster di Master berbeda. Endpoint rotasi harus tersedia pada versi Master yang sedang berjalan. Jika mendapatkan HTTP 404, **jangan lanjut membuat Secret dan jangan gunakan file token kosong**. Periksa apakah route terdaftar:
+Ganti `c1` jika ID cluster di Master berbeda. Rotasi membatalkan token lama, jadi token baru harus disimpan dan Secret SOC diperbarui sebelum workload menggunakan token tersebut. Jika perintah gagal dengan `401`, token admin yang dimasukkan tidak cocok dengan konfigurasi Master aktif. Jika mendapat `404` walau route terdaftar, pastikan ID cluster benar. Perintah di atas menulis ke file sementara dan hanya menggantinya setelah request serta parsing sukses.
 
-```bash
-curl -fsS http://127.0.0.1:8100/openapi.json \
-  | jq -r '.paths | keys[] | select(contains("/rotate-token"))'
-```
-
-Jika tidak ada output, Master yang sedang berjalan belum memuat endpoint rotasi. Perbarui source code ke versi repo yang memuat `POST /api/v1/clusters/{cluster_id}/rotate-token`, restart proses/service Master, lalu periksa OpenAPI lagi. Jika route ada tetapi request tetap 404, pastikan `c1` adalah ID cluster yang terdaftar di Master. Rotasi langsung membatalkan token lama; simpan token baru dan update Secret SOC sebelum rollout.
-
-Jika perintah sebelumnya pernah gagal setelah `>` membuat file token, cek file tanpa menampilkan isinya:
+Jika percobaan terdahulu membuat file token, periksa keberadaannya tanpa menampilkan isinya; file kosong atau token lama yang sudah dirotasi jangan digunakan:
 
 ```bash
 test -s /root/soc-cluster-01/cluster-pull-token \
