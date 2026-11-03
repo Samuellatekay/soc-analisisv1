@@ -230,7 +230,18 @@ kubectl -n soc-cluster-01 create secret tls soc-analisis-tls \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Buat file environment Secret di luar repository dengan permission terbatas, misalnya `/secure/path/soc-runtime.env`. Isi key yang diperlukan oleh workload:
+### Apa itu `soc-runtime`?
+
+`soc-runtime` adalah **Secret Kubernetes**: tempat Kubernetes menyimpan password/token lalu menyediakannya ke Pod SOC. File `soc-runtime.env` di bawah hanya file sementara di VM untuk memasukkan nilai ke Secret; file ini bukan file konfigurasi aplikasi dan jangan diletakkan di repository.
+
+Buat folder dan file tersebut pada VM control-plane. `/root/soc-cluster-01/` adalah contoh lokasi aman, bukan path wajib:
+
+```bash
+sudo install -d -m 700 /root/soc-cluster-01
+sudo nano /root/soc-cluster-01/soc-runtime.env
+```
+
+Isi file dengan nilai koneksi **milik Anda yang benar-benar aktif**. Contoh berikut menunjukkan format saja; alamat `*.example.com` dan teks `GANTI_...` harus diganti:
 
 ```dotenv
 DATABASE_URL=postgresql+psycopg://soc:URL_ENCODED_PASSWORD@postgres.example.com:5432/soc?sslmode=require
@@ -240,27 +251,58 @@ API_TOKENS=GANTI_TOKEN_ADMIN:admin:default,GANTI_TOKEN_ANALYST:analyst:default
 NEO4J_PASSWORD=GANTI_PASSWORD_NEO4J
 ```
 
-Pastikan file hanya dapat dibaca operator, misalnya `chmod 600 /secure/path/soc-runtime.env`.
+Arti tiap baris:
 
-Tambahkan `ELASTICSEARCH_API_KEY`, `LLM_API_KEY`, `OPENCTI_TOKEN`, atau secret konektor hanya jika dipakai. Password di URL harus percent-encode karakter khusus. Pastikan URL dan kredensial dapat diakses dari Pod; `sslmode=require` pada PostgreSQL mewajibkan TLS.
+- `DATABASE_URL`: alamat PostgreSQL eksternal yang bisa dijangkau Pod. Ganti username, password, host, port, dan nama database. Contoh host bukan server PostgreSQL sungguhan.
+- `REDIS_URL`: alamat Redis untuk antrean. `rediss://` berarti koneksi TLS; gunakan format/skema yang disediakan layanan Redis Anda.
+- `INGEST_API_KEY`: kunci pengiriman alert dengan format `nilai-rahasia:tenant`; contoh tenant di sini `default`.
+- `API_TOKENS`: token untuk login UI/API, format `token:role:tenant`, dipisah koma. Role contoh `admin` dan `analyst`; buat token acak sendiri. Jika login OIDC belum dikonfigurasi, baris ini diperlukan untuk masuk.
+- `NEO4J_PASSWORD`: password untuk Neo4j pada host `NEO4J_URI` di ConfigMap.
 
-Manifest mengaktifkan backup dan me-mount key `BACKUP_ENCRYPTION_KEY` dari Secret `soc-runtime`. Buat key sekali, backup secara aman, lalu jangan menggantinya tanpa memastikan backup lama masih dapat didekripsi:
+Simpan dan keluar dari editor, kemudian kunci izin file:
 
 ```bash
-.venv/bin/python -m services.backup.crypto genkey /secure/path/backup.key
+sudo chmod 600 /root/soc-cluster-01/soc-runtime.env
 ```
 
-Buat Secret runtime dengan Master token dan public key. File token sebaiknya permission `0600`. Untuk instalasi baru:
+Jangan menambahkan tanda kutip di sekitar nilai pada file env. Jika password URL mengandung karakter khusus seperti `@`, encode sebagai URL (misalnya `@` menjadi `%40`). `sslmode=require` mewajibkan TLS PostgreSQL. Tambahkan baris `ELASTICSEARCH_API_KEY=...`, `LLM_API_KEY=...`, `OPENCTI_TOKEN=...`, atau secret konektor hanya jika layanan tersebut digunakan; URL Elasticsearch sudah diatur di `config-patch.yaml`.
+
+Manifest contoh mengaktifkan backup. `BACKUP_ENCRYPTION_KEY` dipakai untuk mengenkripsi hasil backup dan dipasang dari Secret yang sama. Buat key satu kali dari root repository:
+
+```bash
+cd /home/mira/soc-analisisv1
+sudo .venv/bin/python -m services.backup.crypto genkey /root/soc-cluster-01/backup.key
+```
+
+Simpan file `backup.key` dengan aman dan buat salinan cadangan di lokasi terpisah. Tanpa key yang sama, backup terenkripsi lama tidak bisa dipulihkan.
+
+Sebelum menjalankan perintah berikut, simpan pull token cluster yang ditampilkan satu kali oleh SOC Master sebagai `/root/soc-cluster-01/cluster-pull-token`; simpan juga public key `master_policy.pub` di folder tersebut. Batasi akses file:
+
+```bash
+sudo chmod 600 /root/soc-cluster-01/cluster-pull-token
+sudo chmod 644 /root/soc-cluster-01/master_policy.pub
+```
+
+Sekarang buat Kubernetes Secret dari file env dan tiga file rahasia/key tambahan. Jalankan untuk **instalasi baru**:
 
 ```bash
 kubectl -n soc-cluster-01 create secret generic soc-runtime \
-  --from-env-file=/secure/path/soc-runtime.env \
-  --from-file=MASTER_CLUSTER_TOKEN=/secure/path/cluster-pull-token \
-  --from-file=MASTER_POLICY_PUBKEY=/secure/path/master_policy.pub \
-  --from-file=BACKUP_ENCRYPTION_KEY=/secure/path/backup.key
+  --from-env-file=/root/soc-cluster-01/soc-runtime.env \
+  --from-file=MASTER_CLUSTER_TOKEN=/root/soc-cluster-01/cluster-pull-token \
+  --from-file=MASTER_POLICY_PUBKEY=/root/soc-cluster-01/master_policy.pub \
+  --from-file=BACKUP_ENCRYPTION_KEY=/root/soc-cluster-01/backup.key
 ```
 
-Jika Secret sudah ada, jangan menjalankan perintah `create` di atas tanpa strategi update. Gunakan secret manager yang digunakan organisasi, atau buat manifest secara ephemeral dan pipe ke `kubectl apply` tanpa menyimpan manifest di disk.
+`--from-env-file` membuat satu entry Secret untuk setiap baris `KEY=VALUE`. Setiap `--from-file=KEY=PATH` membuat entry dengan nama key di sebelah kiri dan isi file di sebelah kanan. Semua entry digabung menjadi Secret Kubernetes bernama `soc-runtime`; workload API, worker, policy-agent, dan configuration-agent membacanya.
+
+Periksa bahwa Secret ada tanpa menampilkan isinya:
+
+```bash
+kubectl -n soc-cluster-01 get secret soc-runtime
+kubectl -n soc-cluster-01 describe secret soc-runtime
+```
+
+Jangan memakai `kubectl get secret -o yaml` atau mencetak isi file env ke log/chat karena itu menampilkan kredensial. Perintah `create` di atas hanya untuk pertama kali; jika Secret sudah ada, gunakan secret manager organisasi atau prosedur rotasi Secret yang terkelola—jangan hapus Secret begitu saja, karena Pod membutuhkannya untuk berjalan.
 
 ## 6. (Opsional) Pasang KEDA untuk autoscaling
 
