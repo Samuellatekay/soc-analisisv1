@@ -43,21 +43,53 @@ Jika Master juga perlu menampilkan health/status cluster, saat registrasi berika
 
 ## 3. Build dan push image
 
-Jalankan dari root repository. Ganti nama registry dan tag dengan milik Anda; gunakan tag rilis immutable, bukan `latest`.
+Cluster ini memakai `containerd`; Docker daemon tidak dibutuhkan oleh Kubernetes, tetapi `docker build` tetap memerlukan Docker Engine. Di VM Ubuntu tanpa Docker, gunakan Buildah. Instal jika belum tersedia:
 
 ```bash
-export REGISTRY=registry.example.com/soc
-export RELEASE=v1.0.0
-
-docker build -f infra/docker/python.Dockerfile \
-  -t "$REGISTRY/soc-analisis-api:$RELEASE" .
-docker build -f infra/docker/web.Dockerfile \
-  -t "$REGISTRY/soc-analisis-web:$RELEASE" .
-docker push "$REGISTRY/soc-analisis-api:$RELEASE"
-docker push "$REGISTRY/soc-analisis-web:$RELEASE"
+sudo apt update
+sudo apt install -y buildah
 ```
 
-Jika registry private, siapkan `imagePullSecret` dan tambahkan `imagePullSecrets` ke Pod template overlay. Jangan menaruh credential registry pada image atau ConfigMap.
+Bangun dari root repository. Ganti owner GHCR dengan nama akun/organisasi yang benar-benar memiliki akses menulis package; `mira` di contoh sebelumnya bukan otomatis nama owner GitHub Anda. Nama package harus kecil semua:
+
+```bash
+cd /home/mira/soc-analisisv1
+export REGISTRY=ghcr.io/samuellatekay
+export RELEASE=v1.0.0
+
+buildah bud -f infra/docker/python.Dockerfile \
+  -t "$REGISTRY/soc-analisis-api:$RELEASE" .
+buildah bud -f infra/docker/web.Dockerfile \
+  -t "$REGISTRY/soc-analisis-web:$RELEASE" .
+```
+
+Dockerfile menggunakan nama image dasar fully qualified (`docker.io/...`) sehingga Buildah tidak perlu menebak registry untuk nama pendek.
+
+Login GHCR memakai Personal Access Token (classic) dengan izin `write:packages` dan akses ke organisasi/repository tersebut. Jangan tempel token ke command line atau simpan di file repository. Masukkan secara interaktif:
+
+```bash
+read -rsp 'GHCR token: ' GHCR_TOKEN; echo
+printf '%s' "$GHCR_TOKEN" | buildah login ghcr.io \
+  --username Samuellatekay --password-stdin
+unset GHCR_TOKEN
+```
+
+Pastikan akun/organisasi mengizinkan token itu mem-publish Packages. Jika package terkait repository private, pastikan package memiliki akses ke repository atau token memiliki akses yang diperlukan. Lalu push:
+
+```bash
+buildah push "$REGISTRY/soc-analisis-api:$RELEASE"
+buildah push "$REGISTRY/soc-analisis-web:$RELEASE"
+```
+
+Kalau VM tidak boleh menyimpan credential registry, build image di CI/mesin build tepercaya, push ke registry, lalu gunakan nama image dan tag immutable yang sama pada overlay.
+
+Jika registry private, buat `imagePullSecret` di namespace dan tambahkan `imagePullSecrets` ke Pod template overlay. Jangan menaruh credential registry pada image atau ConfigMap.
+
+### Jika build/push gagal
+
+- `short-name "nginxinc/nginx-unprivileged:..." did not resolve`: Buildah tidak menebak registry untuk nama image pendek. Dockerfile repo sudah memakai `docker.io/nginxinc/...` dan `docker.io/library/...`; tarik perubahan itu atau gunakan Dockerfile yang sudah diperbarui, lalu jalankan ulang **kedua** build.
+- `403 Forbidden` saat push ke GHCR: pastikan path image memakai owner GitHub yang benar (nama akun/organisasi yang punya package, bukan nama VM), huruf kecil, dan token yang dipakai `buildah login` memiliki izin `write:packages` serta akses ke package/repository. Untuk akun pribadi `Samuellatekay`, contohnya `ghcr.io/samuellatekay/...`; jika package dimiliki organisasi, ganti dengan owner organisasi itu.
+- `image ... web ... not known`: build image web sebelumnya gagal pada `FROM nginxinc/...`, sehingga image lokal untuk di-push memang belum ada. Perbaiki build dahulu; jangan hanya mengulang `push`.
 
 ## 4. Buat overlay khusus cluster
 
