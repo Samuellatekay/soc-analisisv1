@@ -298,9 +298,28 @@ Jika path tidak muncul, Master yang sedang berjalan belum memuat endpoint. Perba
 
 #### Memeriksa token admin Master
 
-Token admin tidak dapat dibaca kembali dari database Master. Token yang benar adalah token yang dikonfigurasi untuk proses Master melalui `MASTER_API_TOKENS` (format `token:admin`) atau `MASTER_API_TOKENS_FILE`. Jangan gunakan `MASTER_CLUSTER_TOKEN`/pull token cluster untuk autentikasi admin, dan jangan menjalankan `grep`/`cat` yang mencetak token ke terminal atau membagikan nilainya.
+Token admin bukan dibuat otomatis oleh Kubernetes dan tidak dapat dibaca kembali dari database Master. Token berasal dari konfigurasi proses Master: `MASTER_API_TOKENS` (format `token:admin`) atau file yang ditunjuk `MASTER_API_TOKENS_FILE`. Saat pertama kali Master disiapkan, operator membuat token acak dan memasukkannya ke konfigurasi tersebut. Jangan gunakan `MASTER_CLUSTER_TOKEN`/pull token cluster untuk autentikasi admin, dan jangan menjalankan `grep`/`cat` yang mencetak token ke terminal atau membagikan nilainya.
 
-Uji token yang Anda simpan dengan endpoint `/api/v1/me`. Masukkan token admin Master saat diminta; input tidak ditampilkan. Perintah hanya mencetak role dan status, bukan token:
+Jika token yang sama sudah disimpan operator, gunakan token itu. Jika hilang/lupa, token lama tidak bisa dipulihkan; buat token admin baru di konfigurasi Master dan restart Master. Contoh berikut untuk Master yang dijalankan langsung dengan Uvicorn di VM, bukan Compose/systemd:
+
+```bash
+sudo install -d -m 700 /root/soc-cluster-01
+sudo sh -c 'umask 077; python3 -c "import secrets; print(secrets.token_urlsafe(32) + \":admin\")" > /root/soc-cluster-01/master-api-tokens'
+sudo chmod 600 /root/soc-cluster-01/master-api-tokens
+```
+
+File tersebut berisi token mentah dengan suffix `:admin`; jangan tampilkan isinya. Hentikan Master lama dengan `Ctrl+C` di terminal tempat Uvicorn berjalan. Di terminal yang sama, atur lokasi file konfigurasi dan jalankan ulang Master:
+
+```bash
+cd /home/mira/soc-analisisv1
+export MASTER_API_TOKENS_FILE=/root/soc-cluster-01/master-api-tokens
+export MASTER_SIGNING_KEY_FILE=/home/mira/soc-analisisv1/secrets/master/master_policy.key
+.venv/bin/python -m uvicorn app.main:app --app-dir apps/master --host 127.0.0.1 --port 8100
+```
+
+Pertahankan `MASTER_DATABASE_URL`, `MASTER_CONFIG_ENCRYPTION_KEY_FILE`, dan pengaturan lain yang memang digunakan Master sebelumnya; jangan sampai restart memakai database berbeda/kosong. Untuk Compose atau systemd, simpan token dalam secret/configuration yang dikelola service tersebut dan atur `MASTER_API_TOKENS`/`MASTER_API_TOKENS_FILE` di service—file di `/root` tidak otomatis tersedia di container. Mengganti konfigurasi token dapat membuat token admin lama tidak berlaku; jangan menimpa konfigurasi yang dipakai operator lain tanpa koordinasi.
+
+Jangan gunakan `grep`/`cat` untuk mencetak token atau membagikan nilainya. Uji token admin yang tersimpan dengan endpoint `/api/v1/me`; masukkan token saat diminta, input tidak ditampilkan. Perintah hanya mencetak role dan status, bukan token:
 
 ```bash
 python3 - <<'PY'
