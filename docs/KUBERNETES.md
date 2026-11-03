@@ -506,6 +506,37 @@ Jangan memakai `kubectl get secret -o yaml` atau mencetak isi file env ke log/ch
 
 Autoscaling Engine melalui Redis Streams memerlukan KEDA 2.16+ pada cluster. HPA API/Web juga memerlukan metrics-server. Pastikan extension API KEDA tersedia **sebelum mengaktifkan autoscaling di Master**.
 
+
+6.1. Instal Helm Terlebih Dahulu
+
+Pilih salah satu cara instalasi di bawah ini (disarankan menggunakan manajer paket resmi):
+Opsi A: Menggunakan Apt (Disarankan untuk Debian/Ubuntu)
+```bash
+curl https://baltocdn.com | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+sudo apt-get install apt-transport-https --yes
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com all main" | sudo tee /etc/apt/sources.list.p/helm-stable-debian.list
+sudo apt-get update
+sudo apt-get install helm -yes
+```
+
+6.2. Jalankan Ulang Perintah KEDA Anda
+
+Setelah Helm berhasil terinstal, Anda bisa menjalankan kembali rangkaian perintah Anda sebelumnya:
+```bash
+# Tambahkan repo KEDA dan update
+helm repo add kedacore https://kedacore.github.io/charts
+helm repo update
+
+# Instal KEDA v2.16.0
+helm upgrade --install keda kedacore/keda \
+  --namespace keda --create-namespace --version 2.16.0
+
+# Verifikasi CRD dan API Services (Sekarang seharusnya sudah muncul)
+kubectl get crd scaledobjects.keda.sh triggerauthentications.keda.sh
+kubectl get apiservices | grep keda
+
+```
+
 Contoh pemasangan KEDA 2.16.0 melalui Helm:
 
 ```bash
