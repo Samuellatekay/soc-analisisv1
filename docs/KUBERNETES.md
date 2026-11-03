@@ -296,11 +296,48 @@ curl -fsS http://127.0.0.1:8100/openapi.json \
 
 Jika path tidak muncul, Master yang sedang berjalan belum memuat endpoint. Perbarui/restart Master dengan versi repo yang berisi `POST /api/v1/clusters/{cluster_id}/rotate-token`, lalu ulangi pemeriksaan. Jika `curl` menyatakan connection refused, Master tidak berjalan di port `8100`; mulai Master menggunakan cara dan konfigurasi/database yang sama seperti sebelumnya. Jangan memulai instance kedua pada port yang sudah dipakai.
 
-#### Memeriksa token admin Master
+#### Token admin Master dan pull token cluster
 
-Token admin bukan dibuat otomatis oleh Kubernetes dan tidak dapat dibaca kembali dari database Master. Token berasal dari konfigurasi proses Master: `MASTER_API_TOKENS` (format `token:admin`) atau file yang ditunjuk `MASTER_API_TOKENS_FILE`. Saat pertama kali Master disiapkan, operator membuat token acak dan memasukkannya ke konfigurasi tersebut. Jangan gunakan `MASTER_CLUSTER_TOKEN`/pull token cluster untuk autentikasi admin, dan jangan menjalankan `grep`/`cat` yang mencetak token ke terminal atau membagikan nilainya.
+Ada **dua token berbeda** untuk dua layanan berbeda:
 
-Jika token yang sama sudah disimpan operator, gunakan token itu. Jika hilang/lupa, token lama tidak bisa dipulihkan; buat token admin baru di konfigurasi Master dan restart Master. Contoh berikut untuk Master yang dijalankan langsung dengan Uvicorn di VM, bukan Compose/systemd:
+| Token | Dipakai untuk | Bentuk penyimpanan |
+|---|---|---|
+| Master API bearer token (role `admin`) | Login ke Master UI/API dan memanggil endpoint admin Master, termasuk menerbitkan pull token | Master membaca entri `TOKEN:admin` dari `MASTER_API_TOKENS` atau `MASTER_API_TOKENS_FILE`; header request hanya berisi `TOKEN` |
+| Pull token cluster | Agent cluster meminta kebijakan dari Master | Disimpan di Secret Kubernetes sebagai `MASTER_CLUSTER_TOKEN` |
+
+Tidak ada token terpisah bernama “token admin” dan “token API Master”: token admin adalah **Master API bearer token yang diberi role `admin`**. Saat diminta `Authorization: Bearer ...`, masukkan hanya bagian `TOKEN`, jangan sertakan `:admin`. Token API untuk SOC cluster (misalnya `API_TOKENS`) adalah credential layanan lain dan tidak otomatis berhak ke Master. Pull token cluster juga berbeda dan tidak dapat dipakai untuk endpoint admin.
+
+Master tidak dapat menampilkan kembali token yang hilang. Jika Master API token yang ber-role admin masih tersimpan, gunakan nilai sebelum `:admin`; jika hilang/lupa, buat token baru di konfigurasi Master dan restart Master menggunakan konfigurasi itu.
+
+##### Menampilkan token yang tersimpan
+
+Jika memang perlu melihat token, jalankan perintah berikut langsung di terminal lokal VM yang tepercaya. Perintah akan menampilkan rahasia di layar; jangan kirim output, screenshot, atau salin nilainya ke chat.
+
+Token admin yang sebelumnya disimpan sebagai nilai mentah:
+
+```bash
+sudo cat /root/soc-cluster-01/master-admin-token
+```
+
+Jika menggunakan file konfigurasi `master-api-tokens`, tampilkan entri konfigurasi:
+
+```bash
+sudo cat /root/soc-cluster-01/master-api-tokens
+```
+
+Format entri adalah `TOKEN:admin` (atau beberapa entri dipisahkan koma). Untuk autentikasi API, gunakan bagian token sebelum `:admin`; suffix tersebut hanya penanda role. File ini mungkin berisi beberapa token, jadi pilih entri admin yang memang digunakan proses Master.
+
+Pull token cluster yang tersimpan ada di file terpisah:
+
+```bash
+sudo cat /root/soc-cluster-01/cluster-pull-token
+```
+
+Nilainya dipakai sebagai `MASTER_CLUSTER_TOKEN` oleh cluster, bukan sebagai token admin. Bila file tidak ditemukan, token mungkin belum pernah disimpan di lokasi tersebut. Token pull yang hilang tidak dapat dibaca kembali dari Master; terbitkan token baru melalui langkah rotasi di bawah.
+
+##### A. Buat dan aktifkan token admin
+
+Langkah berikut khusus untuk Master yang dijalankan langsung dengan Uvicorn di VM. Jalankan sebagai `root`, karena contoh ini menyimpan file konfigurasi di `/root`. File berisi `TOKEN:admin`—suffix `:admin` adalah role, **bukan bagian dari token yang dikirim pada header API**.
 
 ```bash
 sudo install -d -m 700 /root/soc-cluster-01
@@ -308,7 +345,7 @@ sudo sh -c 'umask 077; python3 -c "import secrets; print(secrets.token_urlsafe(3
 sudo chmod 600 /root/soc-cluster-01/master-api-tokens
 ```
 
-File tersebut berisi token mentah dengan suffix `:admin`; jangan tampilkan isinya. Hentikan Master lama dengan `Ctrl+C` di terminal tempat Uvicorn berjalan. Di terminal yang sama, atur lokasi file konfigurasi dan jalankan ulang Master:
+Hentikan Master lama dengan `Ctrl+C` pada terminal yang menjalankannya. Dari root repository, mulai ulang Master dengan file token tersebut:
 
 ```bash
 cd /home/mira/soc-analisisv1
@@ -317,68 +354,102 @@ export MASTER_SIGNING_KEY_FILE=/home/mira/soc-analisisv1/secrets/master/master_p
 .venv/bin/python -m uvicorn app.main:app --app-dir apps/master --host 127.0.0.1 --port 8100
 ```
 
-Pertahankan `MASTER_DATABASE_URL`, `MASTER_CONFIG_ENCRYPTION_KEY_FILE`, dan pengaturan lain yang memang digunakan Master sebelumnya; jangan sampai restart memakai database berbeda/kosong. Untuk Compose atau systemd, simpan token dalam secret/configuration yang dikelola service tersebut dan atur `MASTER_API_TOKENS`/`MASTER_API_TOKENS_FILE` di service—file di `/root` tidak otomatis tersedia di container. Mengganti konfigurasi token dapat membuat token admin lama tidak berlaku; jangan menimpa konfigurasi yang dipakai operator lain tanpa koordinasi.
+Biarkan proses ini berjalan. Gunakan terminal kedua untuk langkah berikut. **Pertahankan database dan pengaturan konfigurasi yang sama dengan Master sebelumnya**; jangan restart dengan database baru/kosong. Jika Master berjalan lewat Compose/systemd, atur token melalui secret/config milik service tersebut, bukan perintah Uvicorn di atas. Pastikan file token bisa dibaca oleh service, tetapi tidak oleh pengguna lain.
 
-Jangan gunakan `grep`/`cat` untuk mencetak token atau membagikan nilainya. Uji token admin yang tersimpan dengan endpoint `/api/v1/me`; masukkan token saat diminta, input tidak ditampilkan. Perintah hanya mencetak role dan status, bukan token:
+##### B. Uji Master API bearer token (role `admin`)
+
+Yang diminta untuk autentikasi adalah **Master API bearer token** yang memiliki role `admin`. Jika file berisi `NILAI_TOKEN:admin`, nilai yang dikirim sebagai `Bearer` hanya `NILAI_TOKEN`; jangan sertakan `:admin`. Ini bukan API token SOC dan bukan pull token cluster. Jalankan di terminal kedua. Skrip membaca file konfigurasi, mengambil hanya bagian sebelum `:admin`, lalu memanggil endpoint Master `/api/v1/me`. Token tidak dicetak:
 
 ```bash
-python3 - <<'PY'
-import getpass
+sudo python3 - <<'PY'
 import json
 import sys
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-token = getpass.getpass("Token admin Master: ")
-if not token:
-    sys.exit("Token kosong; tidak ada request yang dikirim.")
+entries = Path("/root/soc-cluster-01/master-api-tokens").read_text().strip().split(",")
+admins = [entry.rsplit(":", 1)[0] for entry in entries if entry.rsplit(":", 1)[-1] == "admin"]
+if not admins or not admins[0]:
+    sys.exit("File tidak berisi entri token:admin.")
 
 request = Request(
     "http://127.0.0.1:8100/api/v1/me",
-    headers={"Authorization": f"Bearer {token}"},
+    headers={"Authorization": f"Bearer {admins[0]}"},
 )
 try:
     with urlopen(request, timeout=5) as response:
         identity = json.load(response)
 except HTTPError as error:
-    sys.exit(f"Master menolak token (HTTP {error.code}); periksa token dan konfigurasi Master aktif.")
+    sys.exit(f"Master menolak token (HTTP {error.code}); pastikan Master memakai file konfigurasi ini.")
 except URLError as error:
     sys.exit(f"Master tidak dapat dijangkau: {error.reason}")
 
-role = identity.get("role")
-print(f"Token valid; role={role}")
-if role != "admin":
-    sys.exit("Token valid, tetapi bukan admin. Gunakan token ber-role admin untuk rotasi.")
+print(f"Master API bearer token valid; role={identity.get('role')}.")
 PY
 ```
 
-Jika hasilnya HTTP 401, token yang dimasukkan tidak ada pada konfigurasi proses Master yang sedang berjalan atau salah. Pastikan token yang Anda simpan sama dengan salah satu entri admin di konfigurasi yang dipakai **proses aktif**, lalu restart Master jika konfigurasinya baru diubah. Jika role `viewer`, token valid tetapi tidak berhak melakukan rotasi. Pemeriksaan ini tidak mengubah token atau data cluster.
+Jika mendapat `401`, pastikan token yang dipakai adalah nilai sebelum `:admin` dan Master aktif dimulai dengan `MASTER_API_TOKENS_FILE` yang benar. Jika token API SOC saja yang berhasil pada layanan SOC, itu tidak membuktikan token tersebut berhak ke Master. Jika koneksi ditolak, Master tidak berjalan di port `8100`. Pemeriksaan ini tidak mengubah token atau data cluster.
 
-Setelah path muncul, masukkan token admin Master secara tersembunyi ketika diminta. Jalankan sebagai root agar file token dapat disimpan di `/root`:
+##### C. Terbitkan pull token baru untuk cluster
+
+Pastikan endpoint rotasi muncul di OpenAPI dan `c1` adalah ID cluster yang sudah terdaftar. Skrip berikut membaca token admin dari file yang sama, mengirim **hanya token mentah** ke API, lalu menyimpan pull token baru dengan permission `600`. Ganti `c1` jika ID cluster Anda berbeda:
 
 ```bash
-set -euo pipefail
-umask 077
-OUT=/root/soc-cluster-01/cluster-pull-token
-TMP=$(mktemp /root/soc-cluster-01/cluster-pull-token.XXXXXX)
-trap 'rm -f "$TMP"; unset MASTER_ADMIN_TOKEN' EXIT
+sudo python3 - <<'PY'
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
-read -rsp 'Token admin Master: ' MASTER_ADMIN_TOKEN
-printf '\n'
-test -n "$MASTER_ADMIN_TOKEN"
-curl --fail-with-body -sS -X POST \
-  -H "Authorization: Bearer ${MASTER_ADMIN_TOKEN}" \
-  http://127.0.0.1:8100/api/v1/clusters/c1/rotate-token \
-  | jq -er '.pull_token | select(type == "string" and length > 0)' > "$TMP"
-test -s "$TMP"
-mv "$TMP" "$OUT"
-chmod 600 "$OUT"
-unset MASTER_ADMIN_TOKEN
-trap - EXIT
-echo "Token pull berhasil disimpan tanpa ditampilkan."
+root = Path("/root/soc-cluster-01")
+entries = (root / "master-api-tokens").read_text().strip().split(",")
+admins = [entry.rsplit(":", 1)[0] for entry in entries if entry.rsplit(":", 1)[-1] == "admin"]
+if not admins or not admins[0]:
+    sys.exit("File tidak berisi entri token:admin; rotasi dibatalkan.")
+
+request = Request(
+    "http://127.0.0.1:8100/api/v1/clusters/c1/rotate-token",
+    data=b"",
+    headers={"Authorization": f"Bearer {admins[0]}"},
+    method="POST",
+)
+try:
+    with urlopen(request, timeout=10) as response:
+        result = json.load(response)
+except HTTPError as error:
+    sys.exit(f"Rotasi gagal (HTTP {error.code}); pastikan token admin valid dan cluster c1 terdaftar.")
+except URLError as error:
+    sys.exit(f"Master tidak dapat dijangkau: {error.reason}")
+
+token = result.get("pull_token")
+if not isinstance(token, str) or not token:
+    sys.exit("Respons Master tidak berisi pull_token; file tidak diubah.")
+
+output = root / "cluster-pull-token"
+fd, temp_name = tempfile.mkstemp(prefix=".cluster-pull-token.", dir=root)
+try:
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w") as temp_file:
+        temp_file.write(token)
+        temp_file.flush()
+        os.fsync(temp_file.fileno())
+    os.replace(temp_name, output)
+except Exception:
+    try:
+        os.unlink(temp_name)
+    except FileNotFoundError:
+        pass
+    raise
+
+print("Pull token baru tersimpan di /root/soc-cluster-01/cluster-pull-token.")
+PY
 ```
 
-Ganti `c1` jika ID cluster di Master berbeda. Rotasi membatalkan token lama, jadi token baru harus disimpan dan Secret SOC diperbarui sebelum workload menggunakan token tersebut. Jika perintah gagal dengan `401`, token admin yang dimasukkan tidak cocok dengan konfigurasi Master aktif. Jika mendapat `404` walau route terdaftar, pastikan ID cluster benar. Perintah di atas menulis ke file sementara dan hanya menggantinya setelah request serta parsing sukses.
+Rotasi langsung membatalkan pull token sebelumnya. Perbarui Secret `soc-runtime` dengan token baru sebelum workload berikutnya memakai Master. Jika mendapat `401`, konfigurasi token admin pada Master aktif tidak cocok; jika `404`, pastikan ID cluster benar. Jangan gunakan atau menyalin token lama.
 
 Jika percobaan terdahulu membuat file token, periksa keberadaannya tanpa menampilkan isinya; file kosong atau token lama yang sudah dirotasi jangan digunakan:
 
