@@ -7,10 +7,10 @@ resources:
 images:
   - name: soc-analisis-api
     newName: 192.168.33.140:5000/soc/soc-analisis-api
-    newTag: replace-with-release
+    newTag: v1.0.0
   - name: soc-analisis-web
     newName: 192.168.33.140:5000/soc/soc-analisis-web
-    newTag: replace-with-release
+    newTag: v1.0.0
 patches:
   - path: namespace-patch.yaml
     target:
@@ -42,3 +42,9 @@ patches:
       version: v1
       kind: Deployment
       name: configuration-agent
+  - path: lab-capacity-patch.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: "^(api|engine|rag-worker|indexer|connectors|kb-sync|web|policy-agent|configuration-agent)$"

@@ -181,6 +181,8 @@ images:
 
 Ganti `192.168.33.140:5000` jika memakai registry lain, dan pastikan `newTag` sama dengan nilai `RELEASE` saat build. `newName` harus cocok dengan path image hasil build/push; jangan menghilangkan atau menambahkan segmen seperti `/soc/` hanya di salah satu tempat. Pertahankan `namespace: soc-cluster-01`.
 
+Overlay `soc-cluster-01` juga memakai `lab-capacity-patch.yaml`: semua Deployment aplikasi disetel ke satu replica dan diberi toleration untuk taint control-plane. Ini ditujukan untuk cluster lab dua node yang worker-nya kekurangan CPU; Kubernetes dapat menjadwalkan workload pada control-plane bila diperlukan. Ini mengurangi redundansi dan memakai resource control-plane, jadi **jangan gunakan konfigurasi ini untuk production**. Untuk production, hapus toleration tersebut dan atur replica serta kapasitas node sesuai kebutuhan.
+
 Edit `namespace-patch.yaml` sehingga nama Namespace `soc-cluster-01`. Edit `config-patch.yaml`:
 
 ```yaml
