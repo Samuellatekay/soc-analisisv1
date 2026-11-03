@@ -93,26 +93,32 @@ sudo ufw allow from 192.168.33.140 to any port 5000 proto tcp
 sudo ufw allow from 192.168.33.141 to any port 5000 proto tcp
 ```
 
-### 3.2 Konfigurasikan containerd di kedua node
+### 3.2 Konfigurasikan containerd pada setiap node yang dapat menjalankan Pod
 
-Jalankan langkah berikut di `mira` dan `node`. Pastikan containerd menggunakan `/etc/containerd/certs.d` sebagai registry config path; periksa konfigurasi aktif terlebih dahulu:
+Registry HTTP berjalan di control-plane `mira` (`192.168.33.140:5000`), tetapi **image ditarik oleh containerd pada node tempat Pod dijadwalkan**. Karena itu konfigurasi registry harus ada pada worker `node` (`192.168.33.141`) dan pada `mira` jika workload boleh dijadwalkan di sana. Ini bukan berarti seluruh konfigurasi containerd harus identik: yang perlu sama adalah registry config path dan entri registry HTTP ini. Menjalankan `curl` dari `mira` saja tidak membuktikan containerd pada `node` sudah siap.
+
+Lakukan langkah berikut **secara terpisah pada masing-masing node**. Untuk memeriksa `mira`, jalankan di terminal control-plane. Untuk memeriksa worker, masuk dahulu ke VM worker, misalnya dari `mira`:
 
 ```bash
-sudo containerd config dump | grep -n -A8 -B2 'config_path'
+ssh mira@192.168.33.141
 ```
 
-Jika config path belum disetel, tambahkan `config_path = "/etc/containerd/certs.d"` pada bagian registry plugin yang sesuai dengan format config containerd 2.x Anda di `/etc/containerd/config.toml`; jangan menimpa konfigurasi cluster yang sudah ada. Kemudian buat host config:
+Ganti `mira` dengan username SSH yang benar pada worker. Di node yang sedang dikonfigurasi, periksa nilai aktif containerd:
 
-Untuk containerd 2.x, bagian konfigurasi yang diperlukan adalah:
+```bash
+sudo containerd config dump | grep -n -A5 -B2 'config_path'
+```
+
+Containerd 2.x harus memiliki satu nilai `config_path` aktif di bagian registry plugin berikut:
 
 ```toml
-[plugins."io.containerd.cri.v1.images".registry]
-  config_path = "/etc/containerd/certs.d"
+[plugins.'io.containerd.cri.v1.images'.registry]
+  config_path = '/etc/containerd/certs.d'
 ```
 
-Jika bagian plugin sudah ada, tambahkan hanya baris `config_path` ke bagian itu. Jangan membuat tabel duplikat.
+Jika nilainya sudah seperti itu, jangan ubah. Jika belum, edit `/etc/containerd/config.toml`: pertahankan satu tabel registry yang ada dan set hanya satu `config_path` ke `/etc/containerd/certs.d`. **Jangan menambahkan baris `config_path` kedua** dan jangan memakai daftar path berpisah titik dua.
 
-Buat konfigurasi registry HTTP **pada kedua node**. Pastikan nama direktori sama persis dengan host dan port yang dipakai dalam referensi image:
+Kemudian, pada node yang sama, buat `hosts.toml`. Direktori harus cocok persis dengan registry pada image, termasuk port `:5000`:
 
 ```bash
 sudo mkdir -p /etc/containerd/certs.d/192.168.33.140:5000
@@ -124,20 +130,23 @@ server = "http://192.168.33.140:5000"
 EOF
 ```
 
-Verifikasi file dan nilai config path di setiap node:
+Verifikasi file pada **masing-masing node**:
 
 ```bash
 sudo cat /etc/containerd/certs.d/192.168.33.140:5000/hosts.toml
 sudo containerd config dump | grep -n -A5 -B2 'config_path'
 ```
 
-Error `http: server gave HTTP response to HTTPS client` berarti containerd masih mencoba HTTPS ke registry HTTP. Pastikan URL di `hosts.toml` memakai `http://`, direktori registry menyertakan `:5000`, dan `config_path` aktif. Jalankan pemeriksaan ini pada node tempat Pod dijadwalkan—bukan hanya control-plane. Contoh, bila `kubectl describe pod` menunjukkan `Node: node/192.168.33.141`, konfigurasi harus sudah benar di worker `node`.
+Error `http: server gave HTTP response to HTTPS client` berarti containerd pada node Pod berjalan belum membaca entri HTTP ini. Periksa `Node:` pada `kubectl describe pod`; misalnya `node/192.168.33.141` berarti konfigurasi harus benar di worker `node`. `hosts.toml` hanya mengatur node lokal, bukan seluruh cluster.
 
-Jika Anda mengubah `/etc/containerd/config.toml`, restart containerd **satu node pada satu waktu**. Jalankan perintah berikut pada node yang sedang diperbaiki; sebelum lanjut ke node lain, pastikan node kembali `Ready`:
+Jika Anda mengubah `/etc/containerd/config.toml`, restart containerd **satu node pada satu waktu**. Setelah restart worker, dari `mira` tunggu worker kembali `Ready` sebelum melanjutkan atau mengubah node berikutnya:
 
 ```bash
+# Jalankan pada node yang konfigurasinya diubah
 sudo systemctl restart containerd
 sudo systemctl is-active containerd
+
+# Jalankan dari control-plane mira
 kubectl get nodes
 ```
 
