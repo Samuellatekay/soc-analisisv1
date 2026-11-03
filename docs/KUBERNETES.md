@@ -43,53 +43,121 @@ Jika Master juga perlu menampilkan health/status cluster, saat registrasi berika
 
 ## 3. Build dan push image
 
-Cluster ini memakai `containerd`; Docker daemon tidak dibutuhkan oleh Kubernetes, tetapi `docker build` tetap memerlukan Docker Engine. Di VM Ubuntu tanpa Docker, gunakan Buildah. Instal jika belum tersedia:
+Untuk VM dua node ini, `192.168.33.140` adalah **VM master/control-plane Kubernetes** (`mira`), bukan worker. Registry internal contoh ini dijalankan pada VM tersebut di port `5000` dan menyimpan image di `/srv/registry`; worker `192.168.33.141` menarik image dari alamat itu. Ini hanya pilihan untuk lab. Untuk production, lebih baik host registry terpisah/terkelola agar registry tetap tersedia saat control-plane maintenance atau gagal.
+
+> **Lab saja:** contoh ini tidak mengaktifkan TLS atau autentikasi registry. Jangan expose port 5000 ke internet atau jaringan yang tidak dipercaya. Untuk production, gunakan registry dengan HTTPS, autentikasi, dan storage yang dibackup.
+
+Registry container di port `5000` berbeda dari aplikasi **SOC Master** di port `8100`: Kubernetes control-plane mengatur node/Pod, SOC Master mengatur konfigurasi SOC, sedangkan registry hanya menyimpan image container.
+
+### 3.1 Jalankan registry pada control-plane
+
+Docker daemon tidak diperlukan. Pasang Podman di control-plane (node `mira`):
+
+```bash
+sudo apt update
+sudo apt install -y podman
+sudo mkdir -p /srv/registry
+sudo chown 1000:1000 /srv/registry
+```
+
+Gunakan Quadlet agar registry otomatis hidup kembali setelah VM reboot:
+
+```bash
+sudo mkdir -p /etc/containers/systemd
+sudo tee /etc/containers/systemd/soc-registry.container >/dev/null <<'EOF'
+[Unit]
+Description=Private SOC container registry
+
+[Container]
+Image=docker.io/library/registry:2
+ContainerName=soc-registry
+PublishPort=5000:5000
+Volume=/srv/registry:/var/lib/registry
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now soc-registry.service
+curl --fail http://127.0.0.1:5000/v2/
+```
+
+Perintah `curl` harus mengembalikan `{}`. Dari worker `node`, pastikan `curl --fail http://192.168.33.140:5000/v2/` juga mengembalikan `{}`. Batasi firewall port 5000 hanya untuk alamat node/mesin build yang perlu mengaksesnya. Contoh jika UFW aktif:
+
+```bash
+sudo ufw allow from 192.168.33.140 to any port 5000 proto tcp
+sudo ufw allow from 192.168.33.141 to any port 5000 proto tcp
+```
+
+### 3.2 Konfigurasikan containerd di kedua node
+
+Jalankan langkah berikut di `mira` dan `node`. Pastikan containerd menggunakan `/etc/containerd/certs.d` sebagai registry config path; periksa konfigurasi aktif terlebih dahulu:
+
+```bash
+sudo containerd config dump | grep -n -A8 -B2 'config_path'
+```
+
+Jika config path belum disetel, tambahkan `config_path = "/etc/containerd/certs.d"` pada bagian registry plugin yang sesuai dengan format config containerd 2.x Anda di `/etc/containerd/config.toml`; jangan menimpa konfigurasi cluster yang sudah ada. Kemudian buat host config:
+
+Untuk containerd 2.x, bagian konfigurasi yang diperlukan adalah:
+
+```toml
+[plugins."io.containerd.cri.v1.images".registry]
+  config_path = "/etc/containerd/certs.d"
+```
+
+Jika bagian plugin sudah ada, tambahkan hanya baris `config_path` ke bagian itu. Jangan membuat tabel duplikat.
+
+```bash
+sudo mkdir -p /etc/containerd/certs.d/192.168.33.140:5000
+sudo tee /etc/containerd/certs.d/192.168.33.140:5000/hosts.toml >/dev/null <<'EOF'
+server = "http://192.168.33.140:5000"
+
+[host."http://192.168.33.140:5000"]
+  capabilities = ["pull", "resolve"]
+EOF
+```
+
+Jika Anda mengubah `/etc/containerd/config.toml`, restart containerd pada satu node pada satu waktu dan pastikan node kembali `Ready` sebelum melanjutkan:
+
+```bash
+sudo systemctl restart containerd
+sudo systemctl is-active containerd
+kubectl get nodes
+```
+
+### 3.3 Build dan push dari root repository
+
+Di mesin yang memiliki source code dan Buildah, gunakan registry IP yang bisa dijangkau kedua node:
 
 ```bash
 sudo apt update
 sudo apt install -y buildah
-```
-
-Bangun dari root repository. Ganti owner GHCR dengan nama akun/organisasi yang benar-benar memiliki akses menulis package; `mira` di contoh sebelumnya bukan otomatis nama owner GitHub Anda. Nama package harus kecil semua:
-
-```bash
 cd /home/mira/soc-analisisv1
-export REGISTRY=ghcr.io/samuellatekay
+export REGISTRY=192.168.33.140:5000
 export RELEASE=v1.0.0
 
 buildah bud -f infra/docker/python.Dockerfile \
   -t "$REGISTRY/soc-analisis-api:$RELEASE" .
 buildah bud -f infra/docker/web.Dockerfile \
   -t "$REGISTRY/soc-analisis-web:$RELEASE" .
+buildah push --tls-verify=false "$REGISTRY/soc-analisis-api:$RELEASE"
+buildah push --tls-verify=false "$REGISTRY/soc-analisis-web:$RELEASE"
 ```
 
-Dockerfile menggunakan nama image dasar fully qualified (`docker.io/...`) sehingga Buildah tidak perlu menebak registry untuk nama pendek.
-
-Login GHCR memakai Personal Access Token (classic) dengan izin `write:packages` dan akses ke organisasi/repository tersebut. Jangan tempel token ke command line atau simpan di file repository. Masukkan secara interaktif:
-
-```bash
-read -rsp 'GHCR token: ' GHCR_TOKEN; echo
-printf '%s' "$GHCR_TOKEN" | buildah login ghcr.io \
-  --username Samuellatekay --password-stdin
-unset GHCR_TOKEN
-```
-
-Pastikan akun/organisasi mengizinkan token itu mem-publish Packages. Jika package terkait repository private, pastikan package memiliki akses ke repository atau token memiliki akses yang diperlukan. Lalu push:
-
-```bash
-buildah push "$REGISTRY/soc-analisis-api:$RELEASE"
-buildah push "$REGISTRY/soc-analisis-web:$RELEASE"
-```
-
-Kalau VM tidak boleh menyimpan credential registry, build image di CI/mesin build tepercaya, push ke registry, lalu gunakan nama image dan tag immutable yang sama pada overlay.
-
-Jika registry private, buat `imagePullSecret` di namespace dan tambahkan `imagePullSecrets` ke Pod template overlay. Jangan menaruh credential registry pada image atau ConfigMap.
+Tidak diperlukan login untuk registry lab tanpa autentikasi ini. Jika build memakai root Buildah, jalankan seluruh perintah build dan push dengan user/lingkungan yang sama agar image lokalnya terlihat.
 
 ### Jika build/push gagal
 
-- `short-name "nginxinc/nginx-unprivileged:..." did not resolve`: Buildah tidak menebak registry untuk nama image pendek. Dockerfile repo sudah memakai `docker.io/nginxinc/...` dan `docker.io/library/...`; tarik perubahan itu atau gunakan Dockerfile yang sudah diperbarui, lalu jalankan ulang **kedua** build.
-- `403 Forbidden` saat push ke GHCR: pastikan path image memakai owner GitHub yang benar (nama akun/organisasi yang punya package, bukan nama VM), huruf kecil, dan token yang dipakai `buildah login` memiliki izin `write:packages` serta akses ke package/repository. Untuk akun pribadi `Samuellatekay`, contohnya `ghcr.io/samuellatekay/...`; jika package dimiliki organisasi, ganti dengan owner organisasi itu.
-- `image ... web ... not known`: build image web sebelumnya gagal pada `FROM nginxinc/...`, sehingga image lokal untuk di-push memang belum ada. Perbaiki build dahulu; jangan hanya mengulang `push`.
+- `short-name ... did not resolve`: gunakan perubahan Dockerfile yang memakai `docker.io/...` untuk seluruh image dasar dan build ulang.
+- `connection refused` atau timeout ke `192.168.33.140:5000`: periksa service registry, firewall, routing antar node, dan hasil `curl http://192.168.33.140:5000/v2/`.
+- `server gave HTTP response to HTTPS client`: config `hosts.toml` atau containerd `config_path` belum terbaca; pastikan direktori host registry tepat dan config path aktif pada kedua node.
+- `403 Forbidden`: contoh registry internal ini tidak memakai autentikasi. Error 403 berarti Anda masih mengarah ke GHCR/registry lain, atau registry yang dipilih memiliki autentikasi sendiri.
+- `image ... not known`: build image terkait belum berhasil secara lokal; selesaikan build sebelum push.
 
 ## 4. Buat overlay khusus cluster
 
@@ -102,7 +170,7 @@ cp -a deploy/kubernetes/overlays/cluster-template deploy/kubernetes/overlays/soc
 Di `deploy/kubernetes/overlays/soc-cluster-01/kustomization.yaml`:
 
 1. Pastikan `namespace` adalah `soc-cluster-01`.
-2. Ganti `newName` image dengan registry Anda dan `newTag` dengan `$RELEASE`.
+2. Set `newName` ke `192.168.33.140:5000/soc-analisis-api` dan `192.168.33.140:5000/soc-analisis-web`, lalu set `newTag` ke `$RELEASE`.
 
 Edit `namespace-patch.yaml` sehingga nama Namespace `soc-cluster-01`. Edit `config-patch.yaml`:
 
