@@ -276,12 +276,30 @@ sudo .venv/bin/python -m services.backup.crypto genkey /root/soc-cluster-01/back
 
 Simpan file `backup.key` dengan aman dan buat salinan cadangan di lokasi terpisah. Tanpa key yang sama, backup terenkripsi lama tidak bisa dipulihkan.
 
-Sebelum menjalankan perintah berikut, simpan pull token cluster yang ditampilkan satu kali oleh SOC Master sebagai `/root/soc-cluster-01/cluster-pull-token`; simpan juga public key `master_policy.pub` di folder tersebut. Batasi akses file:
+File `master_policy.pub` yang Anda temukan berada di `/home/mira/soc-analisisv1/secrets/master/master_policy.pub`; file itu boleh digunakan langsung atau disalin ke folder rahasia cluster. `cluster-pull-token` **tidak dibuat sebagai file otomatis**. Token awal hanya ditampilkan saat registrasi cluster di SOC Master. Jika token awal hilang dan cluster sudah terdaftar, admin Master bisa menerbitkan token baru; tindakan ini langsung membatalkan token lama.
+
+Buat folder dan salin public key ke lokasi yang digunakan pada perintah Secret:
 
 ```bash
-sudo chmod 600 /root/soc-cluster-01/cluster-pull-token
+sudo install -d -m 700 /root/soc-cluster-01
+sudo cp /home/mira/soc-analisisv1/secrets/master/master_policy.pub \
+  /root/soc-cluster-01/master_policy.pub
 sudo chmod 644 /root/soc-cluster-01/master_policy.pub
 ```
+
+Pastikan Master API berjalan dan environment `MASTER_ADMIN_TOKEN` berisi token admin Master. Simpan token cluster yang baru langsung ke file (perintah tidak mencetak token ke terminal):
+
+```bash
+set -o pipefail
+curl --fail-with-body -sS -X POST \
+  -H "Authorization: Bearer $MASTER_ADMIN_TOKEN" \
+  http://127.0.0.1:8100/api/v1/clusters/c1/rotate-token \
+  | jq -er '.pull_token' > /root/soc-cluster-01/cluster-pull-token
+sudo chmod 600 /root/soc-cluster-01/cluster-pull-token
+test -s /root/soc-cluster-01/cluster-pull-token
+```
+
+Ganti `c1` jika ID cluster di Master berbeda. Simpan file token dengan izin terbatas:
 
 Sekarang buat Kubernetes Secret dari file env dan tiga file rahasia/key tambahan. Jalankan untuk **instalasi baru**:
 

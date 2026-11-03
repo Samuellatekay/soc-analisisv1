@@ -139,6 +139,20 @@ def register(body: ClusterIn, p=Depends(need_admin), s: Session = Depends(db.dep
     return {"id": body.id, "pull_token": token, "note": "Token tarik-kebijakan ditampilkan SEKALI. Set di cluster: CLUSTER_ID + MASTER_CLUSTER_TOKEN."}
 
 
+@app.post("/api/v1/clusters/{cluster_id}/rotate-token")
+def rotate_cluster_token(cluster_id: str, p=Depends(need_admin), s: Session = Depends(db.dep)):
+    cluster = _cluster_or_404(s, cluster_id)
+    token = secrets.token_urlsafe(32)
+    cluster.pull_token_hash = hashlib.sha256(token.encode()).hexdigest()
+    audit(s, p[0], "cluster.pull_token.rotate", cluster_id)
+    s.commit()
+    return {
+        "id": cluster_id,
+        "pull_token": token,
+        "note": "Token lama langsung tidak berlaku. Token baru hanya ditampilkan sekali.",
+    }
+
+
 def _fleet(s: Session) -> list[dict]:
     now = utcnow()
     rows = []

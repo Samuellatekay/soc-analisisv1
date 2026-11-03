@@ -98,6 +98,18 @@ def test_master_rbac_and_registry(master):
     assert "pull_token" not in master.get("/api/v1/clusters", headers=A).text                    # token tidak pernah dibaca ulang
 
 
+def test_cluster_pull_token_rotation(master):
+    old_token = reg(master, "rotate-a")
+    assert master.post("/api/v1/clusters/rotate-a/rotate-token", headers=V).status_code == 403
+    response = master.post("/api/v1/clusters/rotate-a/rotate-token", headers=A)
+    assert response.status_code == 200
+    new_token = response.json()["pull_token"]
+    assert new_token != old_token
+    assert master.get("/api/v1/config/pull/rotate-a", headers={"Authorization": f"Bearer {old_token}"}).status_code == 401
+    assert master.get("/api/v1/config/pull/rotate-a", headers={"Authorization": f"Bearer {new_token}"}).status_code == 304
+    assert master.post("/api/v1/clusters/unknown/rotate-token", headers=A).status_code == 404
+
+
 @pytest.fixture(scope="module")
 def tokens(master):
     return {"dc-a": master.post("/api/v1/clusters", json={"id": "dc-tok-a", "name": "a", "api_url": "https://a"}, headers=A).json()["pull_token"],
