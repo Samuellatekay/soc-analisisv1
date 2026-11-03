@@ -545,10 +545,32 @@ printf '\nMASTER_CLUSTER_TOKEN=%s\nMASTER_POLICY_PUBKEY=%s\nBACKUP_ENCRYPTION_KE
   >> "$COMBINED_ENV"
 
 kubectl -n soc-cluster-01 create secret generic soc-runtime \
-  --from-env-file="$COMBINED_ENV"
+  --from-env-file="$COMBINED_ENV" \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-File gabungan dihapus otomatis saat shell selesai dan hanya dapat dibaca root selama proses berlangsung. `--from-env-file` membuat satu entry Secret untuk tiap baris `KEY=VALUE`; workload API, worker, policy-agent, dan configuration-agent membaca Secret `soc-runtime`.
+File gabungan dihapus otomatis saat shell selesai dan hanya dapat dibaca root selama proses berlangsung. `--from-env-file` membuat satu entry Secret untuk tiap baris `KEY=VALUE`; perintah dry-run lalu `apply` ini dapat dipakai untuk membuat **atau memperbarui** Secret tanpa mencetak nilainya.
+
+### Mengganti database PostgreSQL
+
+Cara yang disarankan adalah melalui SOC Master: pilih cluster, buka konfigurasi runtime, lalu ubah field rahasia `DATABASE_URL` pada bagian aplikasi. Gunakan URL PostgreSQL aktif yang dapat dijangkau dari Pod, misalnya:
+
+```text
+postgresql+psycopg://USER:PASSWORD@HOST:5432/NAMA_DATABASE?sslmode=require
+```
+
+Ganti semua nilai contoh; `postgres.example.com` bukan server sungguhan. Pastikan database dan user sudah dibuat, firewall mengizinkan koneksi dari node/Pod cluster, dan sertifikat TLS tepercaya tersedia jika layanan mewajibkannya. Encode karakter khusus dalam username/password sebagai URL (contoh `@` menjadi `%40`). Simpan konfigurasi di Master; agent akan memperbarui Secret dan melakukan rolling restart workload. Jangan memasukkan URL berisi password ke chat, tiket, atau perintah yang tersimpan di shell history.
+
+Jika cluster belum dikelola melalui Master dan Secret diubah langsung oleh operator, edit `DATABASE_URL` pada `/root/soc-cluster-01/soc-runtime.env`, lalu ulangi prosedur **Membuat Secret `soc-runtime`** di atas dengan file token, public key, dan backup key yang sama. Prosedur itu membangun ulang Secret dari file gabungan lengkap; jangan membuat Secret hanya dari `DATABASE_URL`, karena Secret ini juga menyimpan key lain yang diperlukan workload. Setelah diterapkan, workload yang membaca Secret sebagai environment variable harus dimulai ulang agar memakai URL baru:
+
+```bash
+kubectl -n soc-cluster-01 rollout restart deployment
+kubectl -n soc-cluster-01 rollout status deployment --timeout=5m
+```
+
+Restart menyebabkan gangguan layanan sementara. Pastikan kapasitas cluster cukup sebelum melakukannya. Jangan jalankan perubahan langsung ini bila Master mengelola Secret; ubah nilainya di Master agar tidak tertimpa oleh sinkronisasi agent.
+
+Perubahan URL **tidak memindahkan data** dari database lama ke database baru. Backup dan migrasikan data/schema sesuai prosedur PostgreSQL sebelum mengganti URL jika data lama perlu dipertahankan. Setelah perubahan, pantau rollout dan log API; jika error masih menyebut `postgres.example.com`, workload belum membaca konfigurasi baru atau masih memakai URL contoh.
 
 Periksa bahwa Secret ada tanpa menampilkan isinya:
 
