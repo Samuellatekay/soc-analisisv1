@@ -112,6 +112,8 @@ Untuk containerd 2.x, bagian konfigurasi yang diperlukan adalah:
 
 Jika bagian plugin sudah ada, tambahkan hanya baris `config_path` ke bagian itu. Jangan membuat tabel duplikat.
 
+Buat konfigurasi registry HTTP **pada kedua node**. Pastikan nama direktori sama persis dengan host dan port yang dipakai dalam referensi image:
+
 ```bash
 sudo mkdir -p /etc/containerd/certs.d/192.168.33.140:5000
 sudo tee /etc/containerd/certs.d/192.168.33.140:5000/hosts.toml >/dev/null <<'EOF'
@@ -122,12 +124,35 @@ server = "http://192.168.33.140:5000"
 EOF
 ```
 
-Jika Anda mengubah `/etc/containerd/config.toml`, restart containerd pada satu node pada satu waktu dan pastikan node kembali `Ready` sebelum melanjutkan:
+Verifikasi file dan nilai config path di setiap node:
+
+```bash
+sudo cat /etc/containerd/certs.d/192.168.33.140:5000/hosts.toml
+sudo containerd config dump | grep -n -A5 -B2 'config_path'
+```
+
+Error `http: server gave HTTP response to HTTPS client` berarti containerd masih mencoba HTTPS ke registry HTTP. Pastikan URL di `hosts.toml` memakai `http://`, direktori registry menyertakan `:5000`, dan `config_path` aktif. Jalankan pemeriksaan ini pada node tempat Pod dijadwalkan—bukan hanya control-plane. Contoh, bila `kubectl describe pod` menunjukkan `Node: node/192.168.33.141`, konfigurasi harus sudah benar di worker `node`.
+
+Jika Anda mengubah `/etc/containerd/config.toml`, restart containerd **satu node pada satu waktu**. Jalankan perintah berikut pada node yang sedang diperbaiki; sebelum lanjut ke node lain, pastikan node kembali `Ready`:
 
 ```bash
 sudo systemctl restart containerd
 sudo systemctl is-active containerd
 kubectl get nodes
+```
+
+Setelah perbaikan, Pod yang gagal biasanya akan mencoba pull lagi secara otomatis. Pantau status dan Events:
+
+```bash
+kubectl -n soc-cluster-01 get pods -o wide -w
+kubectl -n soc-cluster-01 describe pod <nama-pod>
+```
+
+Ganti `<nama-pod>` dengan nama Pod aktual; jangan ketik placeholder tersebut apa adanya. Jika Events tidak lagi menunjukkan error HTTP-versus-HTTPS tetapi image tetap gagal ditarik, periksa apakah repository dan tag image benar-benar ada di registry:
+
+```bash
+curl -fsS http://192.168.33.140:5000/v2/soc/soc-analisis-api/tags/list
+curl -fsS http://192.168.33.140:5000/v2/soc/soc-analisis-web/tags/list
 ```
 
 ### 3.3 Build dan push dari root repository
