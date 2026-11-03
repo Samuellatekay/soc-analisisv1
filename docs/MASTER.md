@@ -27,14 +27,12 @@ Terbitkan kebijakan: `POST /api/v1/policies {"policy":{...},"targets":["c1"],"no
 Master UI opsional tersedia melalui service Compose `master` dan `master-web`. Jalankan terpisah dari cluster yang dikelola:
 
 ```bash
-mkdir -p secrets/master
-chmod 700 secrets/master
-.venv/bin/python -m services.master.keys gen secrets/master
-.venv/bin/python -m services.master.keys gen-config secrets/master/master_config.key
-sudo bash scripts/generate-master-tls.sh 192.168.33.140
+bash scripts/install-mode.sh master 192.168.33.140
 ```
 
-Ganti alamat terakhir dengan IP/hostname yang akan dipakai node untuk menghubungi Master. Script membuat CA privat dan sertifikat HTTPS di `secrets/master/tls`; perintah menolak menimpa direktori TLS yang sudah ada. Simpan `ca.key`, `master_policy.key`, dan `master_config.key` di penyimpanan rahasia terenkripsi dengan backup terpisah. `master_policy.key` menandatangani payload; `master_config.key` mengenkripsi seluruh payload konfigurasi sebelum ditulis ke database Master. Kehilangan kunci konfigurasi membuat konfigurasi tersimpan tidak dapat dipulihkan. Jangan commit file kunci.
+Perintah satu-kali ini membuat `.env`/token admin awal hanya jika belum tersedia, membangkitkan key dan HTTPS privat bila belum ada, membangun container, lalu menjalankan Master UI/API. Ganti alamat dengan IP/hostname yang akan dipakai browser dan node untuk menghubungi Master. Token awal tersimpan pada `secrets/install/master.txt`; jaga dan bagikan secara aman. Installer tidak menimpa `.env`, key, atau direktori TLS yang sudah ada.
+
+Simpan `ca.key`, `master_policy.key`, dan `master_config.key` di penyimpanan rahasia terenkripsi dengan backup terpisah. `master_policy.key` menandatangani payload; `master_config.key` mengenkripsi seluruh payload konfigurasi sebelum ditulis ke database Master. Kehilangan kunci konfigurasi membuat konfigurasi tersimpan tidak dapat dipulihkan. Jangan commit file kunci.
 
 `ca.key` adalah private key CA dan tidak dipasang ke container mana pun. Compose hanya memasang dua private key Master ke API, serta sertifikat dan private key server ke Nginx HTTPS.
 

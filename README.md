@@ -18,6 +18,28 @@ Untuk tes: `make test`; untuk tes UI: `cd apps/web && npm test`. Untuk menjalank
 
 `GET /api/v1/health` adalah liveness check. Gunakan `GET /api/v1/ready` untuk readiness: memeriksa koneksi database dan Redis bila ingest memakai mode queue, serta melaporkan status Elasticsearch/Neo4j bila dikonfigurasi.
 
+### Instalasi satu perintah
+
+Pada Ubuntu/Linux, dari root repository jalankan satu mode berikut. Installer membuat `.env` dan kredensial awal hanya jika belum ada; file yang sudah ada tidak ditimpa.
+
+```bash
+bash scripts/install-mode.sh single
+```
+
+Mode `single` memasang dependency lokal dan menjalankan aplikasi dengan SQLite di `http://127.0.0.1:8000`. Tekan `Ctrl+C` untuk berhenti. Kredensial awal disimpan dengan izin terbatas pada `secrets/install/single.txt`.
+
+```bash
+bash scripts/install-mode.sh orchestration
+```
+
+Mode `orchestration` memerlukan Docker Engine dan Compose v2; ia membangun serta menjalankan stack aplikasi dan layanan data lokal, lalu membuka UI di `http://localhost:8080`. Kredensial awal disimpan pada `secrets/install/orchestration.txt`. Ini mode single-host/lab, bukan high availability.
+
+```bash
+bash scripts/install-mode.sh master 192.168.33.140
+```
+
+Mode `master` memerlukan Docker Engine/Compose v2, OpenSSL, Python 3, dan `sudo`; ia memasang SOC Master UI/API saja pada `https://192.168.33.140:8443`, membuat key/sertifikat bila belum tersedia, dan menyimpan token admin awal pada `secrets/install/master.txt`. Alamat harus IP/hostname yang dapat dijangkau klien. CA privat perlu dipercaya pada browser dan node. Mode ini **tidak** memasang Kubernetes atau memprovisikan VM; cluster harus disiapkan terpisah sebelum didaftarkan di Master.
+
 ### Smoke test integrasi staging
 
 Dengan Elasticsearch dan Neo4j Compose sudah berjalan, uji query terhadap layanan nyata dari dalam network Compose (tidak perlu membuka port database ke host):
