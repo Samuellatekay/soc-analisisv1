@@ -82,7 +82,7 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now soc-registry.service
+sudo systemctl start soc-registry.service
 curl --fail http://127.0.0.1:5000/v2/
 ```
 
