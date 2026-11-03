@@ -20,7 +20,7 @@ Untuk tes: `make test`; untuk tes UI: `cd apps/web && npm test`. Untuk menjalank
 
 ### Instalasi satu perintah
 
-Pada Ubuntu/Linux, dari root repository jalankan satu mode berikut. Installer membuat `.env` dan kredensial awal hanya jika belum ada; file yang sudah ada tidak ditimpa.
+Pada Ubuntu/Linux, dari root repository jalankan salah satu mode berikut. Mode Single dan Master membuat `.env`/kredensial awal hanya bila diperlukan dan tidak menimpa file konfigurasi yang sudah ada.
 
 ```bash
 bash scripts/install-mode.sh single
@@ -29,10 +29,16 @@ bash scripts/install-mode.sh single
 Mode `single` memasang dependency lokal dan menjalankan aplikasi dengan SQLite di `http://127.0.0.1:8000`. Tekan `Ctrl+C` untuk berhenti. Kredensial awal disimpan dengan izin terbatas pada `secrets/install/single.txt`.
 
 ```bash
-bash scripts/install-mode.sh orchestration
+sudo bash scripts/install-mode.sh orchestration 192.168.33.140
 ```
 
-Mode `orchestration` memerlukan Docker Engine dan Compose v2; ia membangun serta menjalankan stack aplikasi dan layanan data lokal, lalu membuka UI di `http://localhost:8080`. Kredensial awal disimpan pada `secrets/install/orchestration.txt`. Ini mode single-host/lab, bukan high availability.
+Mode `orchestration` memasang K3s control-plane pada VM Ubuntu/Debian baru; ia tidak menggunakan Docker Compose. Untuk menambahkan worker, ambil token K3s melalui jalur aman dari control-plane, lalu jalankan di VM worker:
+
+```bash
+sudo --preserve-env=K3S_TOKEN bash scripts/install-mode.sh orchestration-agent https://192.168.33.140:6443
+```
+
+Jangan menaruh token di command line, riwayat shell, atau chat. Mode ini hanya menyiapkan cluster K3s; deployment SOC, layanan data, Secret, registry, dan konfigurasi Master masih perlu disiapkan sesuai [panduan Kubernetes](docs/KUBERNETES.md). Installer tidak menghapus cluster Kubernetes yang sudah ada dan akan berhenti bila mendeteksinya. Ini mode lab, bukan high availability.
 
 ```bash
 bash scripts/install-mode.sh master 192.168.33.140
@@ -131,7 +137,7 @@ Perintah di bawah ditujukan untuk Ubuntu/Linux dan dijalankan dari folder utama 
 | Mode | Cocok untuk | Yang perlu disiapkan |
 |---|---|---|
 | **1. Single** | Belajar, demo, dan development di satu komputer | Python 3.12+, Node.js 18+, npm |
-| **2. Orkestrasi** | Menjalankan aplikasi, database, antrean, dan worker di satu host | Docker Engine dan Docker Compose v2 |
+| **2. Orkestrasi** | Menyiapkan cluster Kubernetes K3s lab | VM Ubuntu/Debian baru; root; akses HTTPS ke `get.k3s.io`; port antarnode K3s diizinkan |
 | **3. Master** | Memantau beberapa cluster SOC dan mengelola kebijakan | Cluster SOC yang sudah berjalan; Master dipasang terpisah |
 
 ### 1. Single — paling mudah, tanpa Docker
@@ -162,39 +168,26 @@ Untuk membuat data contoh, buka terminal lain di folder repository:
 
 Token di atas hanya untuk demo lokal. Jangan gunakan token development atau buka aplikasi langsung ke internet.
 
-### 2. Orkestrasi — Docker Compose di satu host
+### 2. Orkestrasi — bootstrap cluster Kubernetes K3s
 
-Mode ini menjalankan API, UI, database, antrean, dan worker sebagai layanan terpisah. Ini tetap satu host, bukan konfigurasi high availability. Master UI opsional dijalankan terpisah dengan profil Compose `master`; panduannya ada di [`docs/MASTER.md`](docs/MASTER.md).
+Mode orkestrasi memasang K3s pada VM control-plane, lalu worker dapat bergabung menggunakan token K3s. Contoh berikut memasang server di VM `192.168.33.140`:
 
-1. Pasang Docker Engine dan plugin Docker Compose v2. Pastikan akun Anda bisa menjalankan `docker compose`.
-2. Buat file konfigurasi dari folder repository:
+```bash
+sudo bash scripts/install-mode.sh orchestration 192.168.33.140
+```
 
-   ```bash
-   cp -n .env.example .env
-   test -e infra/config/connectors.json || cp infra/config/connectors.example.json infra/config/connectors.json
-   ```
+Di VM worker, masukkan token secara interaktif tanpa menaruhnya di argumen command:
 
-3. Edit `.env`: ganti password, token API, dan ingest key contoh. Untuk menghindari konektor berjalan dua kali, set `EMBEDDED_CONNECTORS=false`; service `connectors` Compose akan menjalankannya. Jangan commit `.env` atau secret ke Git.
-4. Bangun dan jalankan seluruh layanan:
+```bash
+read -rsp 'K3S token: ' K3S_TOKEN; echo
+export K3S_TOKEN
+sudo --preserve-env=K3S_TOKEN bash scripts/install-mode.sh orchestration-agent https://192.168.33.140:6443
+unset K3S_TOKEN
+```
 
-   ```bash
-   docker compose -f infra/docker-compose.yml --env-file .env up --build -d
-   ```
+Periksa node dari control-plane dengan `sudo k3s kubectl get nodes -o wide`. Installer menolak host yang terdeteksi sudah memiliki Kubernetes; ia tidak melakukan reset atau menghapus data. Bootstrap K3s saja belum memasang aplikasi SOC atau layanan datanya. Untuk deployment aplikasi, kredensial runtime, registry, TLS, dan validasi readiness, ikuti [panduan Kubernetes](docs/KUBERNETES.md). Jangan memakai host yang sedang menjalankan cluster lama sebelum backup dan proses migrasi/reset yang direncanakan.
 
-5. Pastikan layanan berjalan:
-
-   ```bash
-   docker compose -f infra/docker-compose.yml --env-file .env ps
-   ```
-
-   Buka UI di `http://localhost:8080`. Untuk melihat log, jalankan `docker compose -f infra/docker-compose.yml --env-file .env logs -f`.
-6. Untuk menghentikan layanan tanpa menghapus data:
-
-   ```bash
-   docker compose -f infra/docker-compose.yml --env-file .env down
-   ```
-
-Perintah `down` mempertahankan data volume. **Jangan gunakan `down -v`** kecuali memang ingin menghapus data. Ollama tidak otomatis dijalankan oleh Compose; RAG tetap dapat menggunakan analisis template bila Ollama belum dikonfigurasi. Backup aktif pada contoh `.env`; sebelum menjalankan stack, siapkan kunci lalu mount file tersebut ke service `backup` pada path `BACKUP_ENCRYPTION_KEY_FILE`. Path secret tidak otomatis dipasang oleh Compose.
+Master UI opsional dipasang terpisah dengan mode `master`; panduannya ada di [`docs/MASTER.md`](docs/MASTER.md).
 
 ### Deployment Kubernetes untuk banyak cluster
 

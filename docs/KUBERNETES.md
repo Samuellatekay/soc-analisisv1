@@ -4,6 +4,25 @@ Panduan ini memasang satu cluster SOC pada satu namespace Kubernetes. Ulangi den
 
 > **Penting:** overlay `cluster-template` menambahkan `policy-agent` dan `configuration-agent`, jadi harus dapat menghubungi Master dan memerlukan token cluster serta public key Master saat Pod dibuat. Siapkan Master dan daftarkan cluster sebelum menerapkan overlay. Panduan Master ada di [`MASTER.md`](MASTER.md).
 
+## Bootstrap K3s lab
+
+Installer satu-perintah memasang K3s control-plane pada VM Ubuntu/Debian baru. Jalankan dari root repository di node control-plane; alamat yang diberikan harus dapat dijangkau worker:
+
+```bash
+sudo bash scripts/install-mode.sh orchestration 192.168.33.140
+```
+
+Di setiap VM worker, masukkan token yang dibaca secara lokal di control-plane tanpa menaruh nilainya di argumen command:
+
+```bash
+read -rsp 'K3S token: ' K3S_TOKEN; echo
+export K3S_TOKEN
+sudo --preserve-env=K3S_TOKEN bash scripts/install-mode.sh orchestration-agent https://192.168.33.140:6443
+unset K3S_TOKEN
+```
+
+Pastikan repo tersedia pada tiap VM. Periksa hasil dari control-plane dengan `sudo k3s kubectl get nodes -o wide`. Installer hanya melakukan bootstrap K3s; langkah di bawah tetap diperlukan untuk build/push image, menyiapkan Master, konfigurasi layanan data, Secret, TLS, dan deploy aplikasi. Installer berhenti jika mendeteksi cluster lama dan tidak melakukan reset otomatis.
+
 ## 1. Prasyarat
 
 Siapkan:
