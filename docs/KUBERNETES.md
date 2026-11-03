@@ -130,6 +130,14 @@ server = "http://192.168.33.140:5000"
 EOF
 ```
 
+Atau gunakan skrip repository untuk membuat file `hosts.toml` dan memeriksa `config_path` sebelum mengubah apa pun. Jalankan di **setiap node** (control-plane dan worker) dari checkout repository:
+
+```bash
+sudo bash scripts/configure-containerd-http-registry.sh 192.168.33.140:5000
+```
+
+Skrip sengaja berhenti jika containerd belum mengaktifkan `/etc/containerd/certs.d`; perbaiki satu `config_path` pada tabel plugin yang sudah ada di `/etc/containerd/config.toml`, lalu jalankan ulang skrip. Jangan menambah nilai `config_path` kedua. Skrip hanya mengonfigurasi node tempat ia dijalankan—menjalankannya di `mira` tidak mengubah worker `node`.
+
 Verifikasi file pada **masing-masing node**:
 
 ```bash
@@ -142,15 +150,15 @@ Error `http: server gave HTTP response to HTTPS client` berarti containerd pada 
 Jika Anda mengubah `/etc/containerd/config.toml`, restart containerd **satu node pada satu waktu**. Setelah restart worker, dari `mira` tunggu worker kembali `Ready` sebelum melanjutkan atau mengubah node berikutnya:
 
 ```bash
-# Jalankan pada node yang konfigurasinya diubah
+# 1. Jalankan pada worker node yang konfigurasinya diubah
 sudo systemctl restart containerd
 sudo systemctl is-active containerd
 
-# Jalankan dari control-plane mira
+# 2. Jalankan dari terminal control-plane mira; tunggu node Ready
 kubectl get nodes
 ```
 
-Setelah perbaikan, Pod yang gagal biasanya akan mencoba pull lagi secara otomatis. Pantau status dan Events:
+Jangan restart containerd pada kedua node bersamaan. Pastikan worker `node` berstatus `Ready` terlebih dahulu. Jika konfigurasi pada `mira` juga diubah, restart `mira` setelah worker sehat; akses API Kubernetes dapat terputus sementara. Tidak perlu restart seluruh VM atau semua Deployment. Kubelet biasanya mencoba ulang image pull secara otomatis. Pantau status Pod dan Events:
 
 ```bash
 kubectl -n soc-cluster-01 get pods -o wide -w
@@ -688,13 +696,15 @@ Untuk membuka UI tanpa domain/Ingress, jalankan port-forward Web pada VM Kuberne
 kubectl -n soc-cluster-01 port-forward service/web 8080:8080
 ```
 
-Biarkan proses berjalan. Jika browser berada di VM yang sama, buka `http://127.0.0.1:8080`. Jika browser berada di komputer lain, buat SSH tunnel dari komputer tersebut ke VM (ganti username SSH bila bukan `mira`):
+Port `8080` di sisi lokal diteruskan ke port `8080` Service Web di dalam cluster. Biarkan proses port-forward berjalan di terminal. Jika browser berada di VM yang sama, buka UI di `http://127.0.0.1:8080`.
+
+Jika browser berada di komputer lain, buka terminal pada komputer tersebut dan buat SSH tunnel ke VM control-plane (ganti `mira` dengan username SSH Anda):
 
 ```bash
 ssh -L 8080:127.0.0.1:8080 mira@192.168.33.140
 ```
 
-Biarkan SSH tetap tersambung, lalu buka `http://127.0.0.1:8080` di browser komputer. `192.168.33.140` adalah IP control-plane pada contoh lingkungan ini. Untuk akses langsung melalui Ingress, gunakan hostname dengan DNS/TLS yang benar atau IP hanya jika controller dan sertifikat mendukungnya. Masuk dengan token API yang dibuat dan uji ingest dari klien yang diizinkan. Di Master UI, pastikan status cluster dan versi konfigurasi berubah menjadi sinkron. Jika mengaktifkan autoscaling, periksa resource KEDA dan HPA:
+Biarkan SSH tetap tersambung, lalu buka `http://127.0.0.1:8080` di browser komputer. Dengan demikian port UI yang dibuka pada browser adalah **8080 melalui port-forward**, bukan port Ingress `80/443`. IP `192.168.33.140` adalah alamat control-plane pada contoh lingkungan ini. Untuk akses langsung melalui Ingress, gunakan hostname dengan DNS/TLS yang benar atau IP hanya jika controller dan sertifikat mendukungnya. Masuk dengan token API yang dibuat dan uji ingest dari klien yang diizinkan. Di Master UI, pastikan status cluster dan versi konfigurasi berubah menjadi sinkron. Jika mengaktifkan autoscaling, periksa resource KEDA dan HPA:
 
 ```bash
 kubectl -n soc-cluster-01 get scaledobjects,triggerauthentications,hpa
