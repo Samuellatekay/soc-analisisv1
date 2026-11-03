@@ -101,6 +101,7 @@ _FIELDS = [
     ("Backup", field("BACKUP_ES_REPOSITORY", "Elasticsearch snapshot repository")),
     ("Operasional", field("POLICY_POLL_SECONDS", "Interval sinkronisasi kebijakan (detik)", "number", default=60, minimum=10, maximum=3600)),
     ("Operasional", field("MASTER_CONFIG_POLL_SECONDS", "Interval sinkronisasi konfigurasi Master (detik)", "number", default=60, minimum=10, maximum=3600)),
+    ("Operasional", field("ENGINE_BATCH_SIZE", "Jumlah maksimum event yang diambil worker per batch", "number", default=10, minimum=1, maximum=100, help="Batch lebih kecil membagi pekerjaan lebih merata antar worker; batch lebih besar dapat meningkatkan throughput namun membuat tiap worker memegang lebih banyak event sekaligus.")),
     ("Operasional", field("ENGINE_CLAIM_IDLE_MS", "Waktu klaim ulang antrean engine (ms)", "number", default=60000, minimum=1000, maximum=3600000)),
 ]
 

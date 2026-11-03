@@ -27,6 +27,22 @@ def test_queue_retry_dlq_replay():
     assert q.lag()["dlq"] == 1 and q.replay_dlq() == 1 and q.lag()["length"] == 1
 
 
+def test_engine_batch_size_is_bounded_and_configurable(monkeypatch):
+    from services.engine.main import _batch_size
+
+    monkeypatch.delenv("ENGINE_BATCH_SIZE", raising=False)
+    assert _batch_size() == 10
+    monkeypatch.setenv("ENGINE_BATCH_SIZE", "1")
+    assert _batch_size() == 1
+    monkeypatch.setenv("ENGINE_BATCH_SIZE", "101")
+    try:
+        _batch_size()
+    except SystemExit as exc:
+        assert "1..100" in str(exc)
+    else:
+        raise AssertionError("out-of-range batch size must stop the worker")
+
+
 def test_lease_failover():
     with session_scope() as s:
         assert scheduler.acquire_lease(s, "t", "A")

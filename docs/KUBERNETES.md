@@ -550,6 +550,12 @@ kubectl get apiservices | grep keda
 
 Jika rollout timeout atau CRD/API service belum tersedia, jangan aktifkan autoscaling. Periksa status dan log Pod di namespace `keda` terlebih dahulu.
 
+Redis Streams menggunakan satu consumer group bersama (`engine`), sehingga worker engine mengambil event yang tersedia secara dinamis; event yang sudah diambil worker lain tidak dibagikan ulang kecuali menjadi pending/stale. Tiap worker mengambil paling banyak `ENGINE_BATCH_SIZE` event per permintaan (default `10`). Batch kecil membuat worker lebih cepat mengambil giliran berikutnya dan mengurangi banyaknya event yang tertahan pada satu worker; batch besar dapat meningkatkan throughput, tetapi bisa membuat pembagian kurang merata jika pemrosesan event lama/bervariasi.
+
+Untuk konfigurasi awal dengan event berat atau durasi pemrosesan yang berbeda-beda, atur `ENGINE_BATCH_SIZE=1` melalui Master UI pada konfigurasi runtime cluster. Mulai dari nilai kecil, pantau lag dan throughput, lalu naikkan bertahap jika diperlukan. Nilai yang diterima `1..100`; perubahan konfigurasi akan diterapkan agent dan me-rollout worker engine.
+
+Jika worker tetap kewalahan saat antrean bertambah, aktifkan autoscaling pada Master UI untuk cluster tersebut. Atur `autoscaling.enabled=true`, `engine_min`, `engine_max`, dan `engine_lag_target` (target jumlah event tertinggal per worker). KEDA menskalakan Deployment `engine` berdasarkan lag Redis Streams; pastikan `INGEST_MODE=queue`, `REDIS_URL` valid, KEDA sudah siap, dan kapasitas node cukup untuk replica maksimum. Autoscaling menambah worker, tetapi tidak menambah kapasitas CPU/node secara otomatis.
+
 Untuk production, pilih versi KEDA yang disetujui dan dipelihara organisasi Anda. Jika KEDA belum terpasang, biarkan autoscaling nonaktif di Master. Autoscaling menambah/mengurangi Pod, bukan node; node autoscaling memerlukan Cluster Autoscaler dari penyedia cluster.
 
 ## 7. Validasi dan deploy

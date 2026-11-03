@@ -20,6 +20,17 @@ log = logging.getLogger("engine")
 _stop = False
 
 
+def _batch_size() -> int:
+    raw = os.getenv("ENGINE_BATCH_SIZE", "10")
+    try:
+        size = int(raw)
+    except ValueError as exc:
+        raise SystemExit("ENGINE_BATCH_SIZE harus berupa bilangan bulat 1..100") from exc
+    if not 1 <= size <= 100:
+        raise SystemExit("ENGINE_BATCH_SIZE harus berupa bilangan bulat 1..100")
+    return size
+
+
 def handle(pipe: Pipeline, q, msg) -> None:
     """Satu event, satu transaksi (jalur fallback/isolasi kegagalan)."""
     try:
@@ -69,10 +80,11 @@ def run() -> None:
     init_db()
     q = get_queue(s.redis_url, consumer=f"{socket.gethostname()}-{os.getpid()}")
     pipe = Pipeline(s)
+    batch_size = _batch_size()
     signal.signal(signal.SIGTERM, lambda *_: globals().__setitem__("_stop", True))
-    log.info("engine worker aktif; consumer=%s", q.consumer)
+    log.info("engine worker aktif; consumer=%s batch_size=%s", q.consumer, batch_size)
     while not _stop:
-        msgs = q.claim_stale(int(os.getenv("ENGINE_CLAIM_IDLE_MS", "60000"))) + q.read()
+        msgs = q.claim_stale(int(os.getenv("ENGINE_CLAIM_IDLE_MS", "60000"))) + q.read(count=batch_size)
         if msgs:
             handle_batch(pipe, q, msgs)
 
