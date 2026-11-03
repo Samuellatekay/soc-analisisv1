@@ -142,14 +142,14 @@ export REGISTRY=192.168.33.140:5000
 export RELEASE=v1.0.0
 
 buildah bud -f infra/docker/python.Dockerfile \
-  -t "$REGISTRY/soc-analisis-api:$RELEASE" .
+  -t "$REGISTRY/soc/soc-analisis-api:$RELEASE" .
 buildah bud -f infra/docker/web.Dockerfile \
-  -t "$REGISTRY/soc-analisis-web:$RELEASE" .
-buildah push --tls-verify=false "$REGISTRY/soc-analisis-api:$RELEASE"
-buildah push --tls-verify=false "$REGISTRY/soc-analisis-web:$RELEASE"
+  -t "$REGISTRY/soc/soc-analisis-web:$RELEASE" .
+buildah push --tls-verify=false "$REGISTRY/soc/soc-analisis-api:$RELEASE"
+buildah push --tls-verify=false "$REGISTRY/soc/soc-analisis-web:$RELEASE"
 ```
 
-Tidak diperlukan login untuk registry lab tanpa autentikasi ini. Jika build memakai root Buildah, jalankan seluruh perintah build dan push dengan user/lingkungan yang sama agar image lokalnya terlihat.
+`REGISTRY` adalah alamat registry yang dapat diakses kedua node, bukan nama image. Untuk registry lab di panduan ini nilainya `192.168.33.140:5000`; ganti jika memakai registry lain. Bagian `/soc/` adalah namespace/repository path di dalam registry, sedangkan `soc-analisis-api` dan `soc-analisis-web` adalah nama image. Pastikan nama dan tag yang di-build/push sama persis dengan `newName` dan `newTag` overlay di bawah. Tidak diperlukan login untuk registry lab tanpa autentikasi ini. Jika build memakai root Buildah, jalankan seluruh perintah build dan push dengan user/lingkungan yang sama agar image lokalnya terlihat.
 
 ### Jika build/push gagal
 
@@ -167,10 +167,19 @@ Salin template, lalu edit overlay baru agar perubahan tidak tercampur dengan tem
 cp -a deploy/kubernetes/overlays/cluster-template deploy/kubernetes/overlays/soc-cluster-01
 ```
 
-Di `deploy/kubernetes/overlays/soc-cluster-01/kustomization.yaml`:
+Di `deploy/kubernetes/overlays/soc-cluster-01/kustomization.yaml`, `registry.example.com/soc/...` adalah **nilai contoh/placeholder**, bukan file dan bukan alamat registry yang otomatis tersedia. Ubah `newName` agar menunjuk ke registry yang sudah berisi image Anda. Untuk registry lab yang dibuat di bagian 3, nilainya harus sama dengan image yang di-push di atas:
 
-1. Pastikan `namespace` adalah `soc-cluster-01`.
-2. Set `newName` ke `192.168.33.140:5000/soc-analisis-api` dan `192.168.33.140:5000/soc-analisis-web`, lalu set `newTag` ke `$RELEASE`.
+```yaml
+images:
+  - name: soc-analisis-api
+    newName: 192.168.33.140:5000/soc/soc-analisis-api
+    newTag: v1.0.0
+  - name: soc-analisis-web
+    newName: 192.168.33.140:5000/soc/soc-analisis-web
+    newTag: v1.0.0
+```
+
+Ganti `192.168.33.140:5000` jika memakai registry lain, dan pastikan `newTag` sama dengan nilai `RELEASE` saat build. `newName` harus cocok dengan path image hasil build/push; jangan menghilangkan atau menambahkan segmen seperti `/soc/` hanya di salah satu tempat. Pertahankan `namespace: soc-cluster-01`.
 
 Edit `namespace-patch.yaml` sehingga nama Namespace `soc-cluster-01`. Edit `config-patch.yaml`:
 
