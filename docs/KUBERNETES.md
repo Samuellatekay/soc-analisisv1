@@ -693,12 +693,26 @@ curl --fail http://127.0.0.1:8000/api/v1/ready
 Untuk membuka UI tanpa domain/Ingress, jalankan port-forward Web pada VM Kubernetes:
 
 ```bash
-kubectl -n soc-cluster-01 port-forward service/web 8080:8080
+kubectl -n soc-cluster-01 port-forward service/web 8080:80
 ```
 
-Port `8080` di sisi lokal diteruskan ke port `8080` Service Web di dalam cluster. Biarkan proses port-forward berjalan di terminal. Jika browser berada di VM yang sama, buka UI di `http://127.0.0.1:8080`.
+Port lokal `8080` diteruskan ke port Service Web `80` (yang mengarah ke port `8080` pada container). Biarkan proses port-forward berjalan di terminal. Jika browser berada di VM yang sama, buka UI di `http://127.0.0.1:8080`.
 
-Jika browser berada di komputer lain, buka terminal pada komputer tersebut dan buat SSH tunnel ke VM control-plane (ganti `mira` dengan username SSH Anda):
+Pastikan terminal port-forward tetap terbuka dan menampilkan `Forwarding from 127.0.0.1:8080 -> ...`. Uji dari terminal lain **pada mesin tempat port-forward berjalan**:
+
+```bash
+curl -I http://127.0.0.1:8080/
+```
+
+Jika `curl` gagal atau port-forward langsung berhenti, periksa Service dan Pod Web:
+
+```bash
+kubectl -n soc-cluster-01 get service web
+kubectl -n soc-cluster-01 get pods -l app.kubernetes.io/name=soc-web
+kubectl -n soc-cluster-01 get endpoints web
+```
+
+Jika browser berada di komputer lain, `127.0.0.1` menunjuk ke komputer itu sendiri, bukan VM Kubernetes. Biarkan port-forward berjalan di VM, lalu buka terminal pada komputer yang menjalankan browser dan buat SSH tunnel ke VM control-plane (ganti `mira` dengan username SSH Anda):
 
 ```bash
 ssh -L 8080:127.0.0.1:8080 mira@192.168.33.140
