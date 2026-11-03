@@ -7,8 +7,9 @@ import Alerts from "./features/alerts/Alerts";
 import AlertDetail from "./features/alerts/AlertDetail";
 import Cases from "./features/cases/Cases";
 import Connectors from "./features/Connectors";
+import MasterConsole from "./features/MasterConsole";
 
-export type Me = { name: string; role: string; tenant_id: string };
+export type Me = { name: string; role: string; tenant_id: string; control_plane?: string };
 
 function Login({ cfg, onDone, notice }: { cfg: AuthCfg | null; onDone: () => void; notice: string }) {
   const [t, setT] = useState(""); const [err, setErr] = useState(notice);
@@ -19,12 +20,14 @@ function Login({ cfg, onDone, notice }: { cfg: AuthCfg | null; onDone: () => voi
   if (!cfg) return <div className="login"><h1>SOC Analisis</h1><p className="muted">Memuat…</p>{err && <p className="err">{err}</p>}</div>;
   return (
     <div className="login">
-      <h1>SOC Analisis</h1>
+      <h1>{cfg.mode === "master" ? "SOC Master" : "SOC Analisis"}</h1>
       {cfg.mode === "oidc" ? <>
         <p className="muted">Masuk melalui penyedia identitas organisasi (SSO).</p>
         <button className="primary" onClick={() => startLogin(cfg)}>Masuk dengan SSO</button>
       </> : <>
-        <p className="muted">Masukkan token API (lihat <code>API_TOKENS</code> di .env). Mode pengembangan.</p>
+        <p className="muted">{cfg.mode === "master"
+          ? <>Masukkan token Master yang disiapkan melalui <code>MASTER_API_TOKENS</code>.</>
+          : <>Masukkan token API (lihat <code>API_TOKENS</code> di .env). Mode pengembangan.</>}</p>
         <input type="password" placeholder="token" value={t} onChange={(e) => setT(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} autoFocus />
         <button className="primary" onClick={go}>Masuk</button></>}
       {err && <p className="err">{err}</p>}
@@ -49,6 +52,7 @@ export default function App() {
     const f = () => setMe(null); addEventListener("soc-unauth", f); return () => removeEventListener("soc-unauth", f);
   }, []);
   if (!me) return <Login cfg={cfg} notice={notice} onDone={() => { loadMe(); location.hash = "#/"; }} />;
+  if (me.control_plane === "master") return <MasterConsole me={me} />;
 
   const [, route, id] = hash.split("/");
   const nav = (to: string, label: string, key: string) => <a href={`#/${to}`} className={route === key || (key === "" && !route) ? "on" : ""}>{label}</a>;

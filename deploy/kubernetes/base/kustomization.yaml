@@ -4,6 +4,7 @@ namespace: soc-analisis
 resources:
   - namespace.yaml
   - config.yaml
+  - configuration-agent-rbac.yaml
   - connectors-config.yaml
   - workloads.yaml
   - ingress.yaml

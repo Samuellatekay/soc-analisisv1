@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -48,6 +50,7 @@ def cluster_status(p: Principal = Depends(require("admin")), db: Session = Depen
     s = gs()
     db.execute(text("select 1"))
     st = db.get(PolicyState, 1)
+    runtime_config_version = int(os.getenv("MASTER_CONFIG_VERSION", "0"))
     last_hour = utcnow() - timedelta(hours=1)
     queue = None
     if s.redis_url:
@@ -61,6 +64,7 @@ def cluster_status(p: Principal = Depends(require("admin")), db: Session = Depen
     return {"version": "1.0.0", "db_ok": True, "scoring_version": s.scoring()["scoring_version"],
             "policy": {"version": st.version if st else 0, "applied_at": st.applied_at.isoformat() if st and st.applied_at else None,
                        "last_check": st.last_check.isoformat() if st and st.last_check else None, "last_error": st.last_error if st else None},
+            "runtime_config": {"version": runtime_config_version},
             "events_last_hour": db.scalar(select(func.count()).select_from(Event).where(Event.received_at >= last_hour)),
             "outbox_pending": db.scalar(select(func.count()).select_from(Outbox).where(Outbox.status == "pending")),
             "outbox_failed": db.scalar(select(func.count()).select_from(Outbox).where(Outbox.status == "failed")),

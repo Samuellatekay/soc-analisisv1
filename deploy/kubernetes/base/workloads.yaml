@@ -63,6 +63,9 @@ spec:
             - configMapRef:
                 name: soc-config
             - secretRef:
+                name: soc-runtime
+                optional: true
+            - secretRef:
                 name: soc-connectors
                 optional: true
           env:
@@ -193,6 +196,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: soc-config
+            - secretRef:
+                name: soc-runtime
+                optional: true
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -276,6 +282,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: soc-config
+            - secretRef:
+                name: soc-runtime
+                optional: true
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -353,6 +362,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: soc-config
+            - secretRef:
+                name: soc-runtime
+                optional: true
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -417,6 +429,9 @@ spec:
                 name: soc-config
             - secretRef:
                 name: soc-connectors
+                optional: true
+            - secretRef:
+                name: soc-runtime
                 optional: true
           env:
             - name: DATABASE_URL
@@ -485,6 +500,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: soc-config
+            - secretRef:
+                name: soc-runtime
+                optional: true
           env:
             - name: DATABASE_URL
               valueFrom:
@@ -622,6 +640,9 @@ spec:
               envFrom:
                 - configMapRef:
                     name: soc-config
+                - secretRef:
+                    name: soc-runtime
+                    optional: true
               env:
                 - name: DATABASE_URL
                   valueFrom:
@@ -677,6 +698,70 @@ spec:
             - name: tmp
               emptyDir:
                 sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: configuration-agent
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: soc-configuration-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: soc-configuration-agent
+        app.kubernetes.io/part-of: soc-analisis
+    spec:
+      serviceAccountName: soc-config-agent
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: configuration-agent
+          image: soc-analisis-api:release
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.engine.configuration_agent"]
+          envFrom:
+            - configMapRef:
+                name: soc-config
+            - secretRef:
+                name: soc-runtime
+                optional: true
+          env:
+            - name: MASTER_CLUSTER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: MASTER_CLUSTER_TOKEN
+            - name: MASTER_POLICY_PUBKEY
+              valueFrom:
+                secretKeyRef:
+                  name: soc-runtime
+                  key: MASTER_POLICY_PUBKEY
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

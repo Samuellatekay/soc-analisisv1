@@ -36,3 +36,9 @@ patches:
       version: v1
       kind: ConfigMap
       name: soc-connectors-config
+  - path: configuration-agent-patch.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: configuration-agent

@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: soc-config-agent
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: soc-config-agent
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["soc-config", "soc-connectors-config"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["soc-runtime", "soc-connectors", "soc-keda-redis"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["soc-keda-redis"]
+    verbs: ["delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["api", "engine", "rag-worker", "indexer", "connectors", "kb-sync", "configuration-agent"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    resourceNames: ["backup"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["create"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    resourceNames: ["soc-api", "soc-web"]
+    verbs: ["get", "patch", "update", "delete"]
+  - apiGroups: ["keda.sh"]
+    resources: ["scaledobjects", "triggerauthentications"]
+    verbs: ["create"]
+  - apiGroups: ["keda.sh"]
+    resources: ["scaledobjects", "triggerauthentications"]
+    resourceNames: ["engine-autoscaler", "soc-keda-redis"]
+    verbs: ["get", "patch", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: soc-config-agent
+subjects:
+  - kind: ServiceAccount
+    name: soc-config-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: soc-config-agent
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: soc-connectors
+type: Opaque
+data: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: soc-keda-redis
+type: Opaque
+data: {}

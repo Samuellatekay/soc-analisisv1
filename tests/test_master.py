@@ -1,5 +1,6 @@
 import os
 import tempfile
+from pathlib import Path
 
 _d = tempfile.mkdtemp()
 os.environ["MASTER_DATABASE_URL"] = f"sqlite:///{_d}/master.db"
@@ -10,6 +11,7 @@ import base64  # noqa: E402
 import json  # noqa: E402
 from datetime import timedelta  # noqa: E402
 
+from cryptography.fernet import Fernet  # noqa: E402
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -22,10 +24,13 @@ from services.common.util import utcnow  # noqa: E402
 from services.engine.policy_agent import PolicyAgent  # noqa: E402
 from services.master import db as mdb  # noqa: E402
 from services.master import poller  # noqa: E402
-from services.master.policy import PolicyRejected, gen_keypair, sign, validate_policy, verify_bundle  # noqa: E402
+from services.master.policy import PolicyRejected, gen_keypair, sign, validate_policy, verify_bundle, verify_signed_payload  # noqa: E402
 
 PRIV, PUB = gen_keypair()
 os.environ["MASTER_SIGNING_KEY"] = PRIV
+_config_key = Path(_d) / "master_config.key"
+_config_key.write_bytes(Fernet.generate_key() + b"\n")
+os.environ["MASTER_CONFIG_ENCRYPTION_KEY_FILE"] = str(_config_key)
 A, V = {"Authorization": "Bearer m-admin"}, {"Authorization": "Bearer m-view"}
 
 
@@ -97,6 +102,125 @@ def test_master_rbac_and_registry(master):
 def tokens(master):
     return {"dc-a": master.post("/api/v1/clusters", json={"id": "dc-tok-a", "name": "a", "api_url": "https://a"}, headers=A).json()["pull_token"],
             "dc-b": master.post("/api/v1/clusters", json={"id": "dc-tok-b", "name": "b", "api_url": "https://b"}, headers=A).json()["pull_token"]}
+
+
+def test_cluster_configuration_is_encrypted_redacted_signed_and_clearable(master):
+    from services.master import configuration
+
+    token = reg(master, "cfg-a")
+    secrets = {
+        "DATABASE_URL": "postgresql+psycopg://soc:db-secret@db.example.com:5432/soc",
+        "REDIS_URL": "rediss://worker:redis-secret@redis.example.com:6380/0",
+        "SPLUNK_TOKEN": "splunk-secret",
+    }
+    body = {
+        "settings": {
+            "INGEST_MODE": "queue", "ELASTICSEARCH_URL": "https://es.example.com:9200",
+            "BACKUP_ENABLED": False, "BACKUP_SCHEDULE_CRON": "0 3 * * *", "BACKUP_TIMEZONE": "Asia/Jakarta",
+        },
+        "secrets": secrets,
+        "autoscaling": {"enabled": True, "engine_min": 1, "engine_max": 8},
+        "connectors": [{
+            "name": "splunk-prod", "type": "splunk_es", "enabled": True,
+            "params": {"base_url": "https://splunk.example.com", "token_env": "SPLUNK_TOKEN"},
+        }],
+    }
+    response = master.put("/api/v1/clusters/cfg-a/configuration", json=body, headers=A)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["version"] == 1 and set(result["secrets_set"]) == set(secrets)
+    assert all(value not in response.text for value in secrets.values())
+    assert all(value not in master.get("/api/v1/clusters/cfg-a/configuration", headers=A).text
+               for value in secrets.values())
+
+    with mdb.scope() as session:
+        row = session.get(mdb.ClusterConfiguration, "cfg-a")
+        assert row and all(value not in row.encrypted_payload for value in secrets.values())
+        assert configuration.decrypt_config(row.encrypted_payload)["secrets"] == secrets
+
+    bundle = master.get("/api/v1/config/pull/cfg-a", headers={"Authorization": f"Bearer {token}"})
+    assert bundle.status_code == 200
+    payload = verify_signed_payload(bundle.json(), PUB, "cfg-a", 0)
+    assert payload["secrets"] == secrets and payload["autoscaling"]["enabled"]
+
+    from services.engine.configuration_agent import ConfigAgent
+
+    class MemoryKubernetes:
+        namespace = "soc-cluster"
+
+        def __init__(self):
+            self.calls = []
+            self.resources = {}
+            for name in ("soc-config", "soc-connectors-config"):
+                self.resources[f"/api/v1/namespaces/{self.namespace}/configmaps/{name}"] = {
+                    "metadata": {"name": name, "annotations": {}},
+                    "data": {"MASTER_CONFIG_VERSION": "0"} if name == "soc-config" else {},
+                }
+            for name in ("soc-runtime", "soc-connectors", "soc-keda-redis"):
+                self.resources[f"/api/v1/namespaces/{self.namespace}/secrets/{name}"] = {
+                    "metadata": {"name": name, "annotations": {}}, "data": {}, "type": "Opaque",
+                }
+
+        def request(self, method, path, body=None, content_type="application/json"):
+            self.calls.append((method, path, body))
+            if method == "GET":
+                if path == "/apis/keda.sh/v1alpha1":
+                    return {"kind": "APIResourceList"}
+                return self.resources.get(path)
+            if method == "PATCH" and path in self.resources:
+                resource = self.resources[path]
+                if "data" in body:
+                    resource.setdefault("data", {}).update(body["data"])
+                if "metadata" in body:
+                    resource.setdefault("metadata", {}).setdefault("annotations", {}).update(
+                        body["metadata"].get("annotations", {}))
+                return resource
+            return body or {}
+
+        def apply(self, path, collection, body):
+            if self.request("GET", path) is None:
+                return self.request("POST", collection, body)
+            return self.request("PATCH", path, body)
+
+        def delete(self, path):
+            self.calls.append(("DELETE", path, None))
+
+    def master_transport(request):
+        response = master.get(request.url.path, headers={
+            "Authorization": f"Bearer {token}",
+            "If-None-Match": request.headers.get("If-None-Match", "0"),
+        })
+        if response.status_code == 304:
+            return httpx.Response(304)
+        return httpx.Response(response.status_code, json=response.json())
+
+    kube = MemoryKubernetes()
+    agent = ConfigAgent("http://master.test", "cfg-a", token, PUB, kube,
+                        transport=httpx.MockTransport(master_transport))
+    assert agent.check() == {"status": "applied", "version": 1}
+    assert agent.check() == {"status": "up_to_date", "version": 1}
+    resources = [body for method, _, body in kube.calls if method == "POST" and body]
+    assert any(resource.get("kind") == "ScaledObject" for resource in resources)
+    assert sum(resource.get("kind") == "HorizontalPodAutoscaler" for resource in resources) == 2
+    assert kube.resources[f"/api/v1/namespaces/{kube.namespace}/configmaps/soc-config"]["data"]["MASTER_CONFIG_VERSION"] == "1"
+    cron_patch = next(body for method, path, body in kube.calls if method == "PATCH" and "/cronjobs/backup" in path)
+    assert cron_patch["spec"]["suspend"] and cron_patch["spec"]["schedule"] == "0 3 * * *"
+
+    invalid = master.put("/api/v1/clusters/cfg-a/configuration", json={
+        **body, "settings": {"ELASTICSEARCH_URL": "http://es.example.com"},
+    }, headers=A)
+    assert invalid.status_code == 422
+
+    cleared = master.put("/api/v1/clusters/cfg-a/configuration", json={
+        **body, "secrets": {}, "clear_secrets": ["SPLUNK_TOKEN"],
+        "autoscaling": {"enabled": False},
+        "connectors": [{**body["connectors"][0], "enabled": False}],
+    }, headers=A)
+    assert cleared.status_code == 200, cleared.text
+    assert "SPLUNK_TOKEN" not in cleared.json()["secrets_set"]
+    assert master.get("/api/v1/config/pull/cfg-a", headers={"Authorization": f"Bearer {token}"}).json()["version"] == 2
+    assert agent.check() == {"status": "applied", "version": 2}
+    assert ("DELETE", f"/api/v1/namespaces/{kube.namespace}/secrets/soc-keda-redis", None) in kube.calls
 
 
 def test_publish_validates_and_targets_canary(master, tokens):

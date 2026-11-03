@@ -101,6 +101,32 @@ def sign(priv_b64: str, cluster_id: str, version: int, policy: dict, issued_at: 
     return {"cluster_id": cluster_id, "version": version, "issued_at": issued_at, "policy": policy, "signature": base64.b64encode(sig).decode()}
 
 
+def sign_payload(priv_b64: str, cluster_id: str, version: int, payload: dict, issued_at: str | None = None) -> dict:
+    issued_at = issued_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    signature = Ed25519PrivateKey.from_private_bytes(base64.b64decode(priv_b64)).sign(
+        canonical(cluster_id, version, issued_at, payload)
+    )
+    return {"cluster_id": cluster_id, "version": version, "issued_at": issued_at,
+            "payload": payload, "signature": base64.b64encode(signature).decode()}
+
+
+def verify_signed_payload(bundle: dict, pub_b64: str, expect_cluster: str, applied_version: int) -> dict:
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(pub_b64)).verify(
+            base64.b64decode(bundle["signature"]),
+            canonical(bundle["cluster_id"], bundle["version"], bundle["issued_at"], bundle["payload"]),
+        )
+    except (InvalidSignature, KeyError, ValueError, TypeError) as exc:
+        raise PolicyRejected("tanda tangan konfigurasi tidak valid") from exc
+    if bundle["cluster_id"] != expect_cluster:
+        raise PolicyRejected("konfigurasi ditujukan untuk cluster lain")
+    if not isinstance(bundle["version"], int) or bundle["version"] <= applied_version:
+        raise PolicyRejected("versi konfigurasi bukan lebih baru")
+    if not isinstance(bundle["payload"], dict):
+        raise PolicyRejected("payload konfigurasi tidak valid")
+    return bundle["payload"]
+
+
 class PolicyRejected(Exception):
     pass
 

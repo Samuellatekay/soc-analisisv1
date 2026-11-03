@@ -7,7 +7,7 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, create_engine, event
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from services.common.config import ROOT
@@ -43,6 +43,16 @@ class PolicyRow(MBase):
     issued_at: Mapped[str] = mapped_column(String(32))
     created_by: Mapped[str] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ClusterConfiguration(MBase):
+    __tablename__ = "m_cluster_configurations"
+    cluster_id: Mapped[str] = mapped_column(ForeignKey("m_clusters.id"), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    encrypted_payload: Mapped[str] = mapped_column(Text)
+    issued_at: Mapped[str] = mapped_column(String(32))
+    updated_by: Mapped[str] = mapped_column(String(128))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
 class StatusRow(MBase):

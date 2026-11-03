@@ -8,7 +8,7 @@ export const randomString = (bytes = 32): string => { const a = new Uint8Array(b
 export const challengeS256 = async (verifier: string): Promise<string> =>
   b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
 
-export type AuthCfg = { mode: "token" } | { mode: "oidc"; client_id: string; scope: string; authorization_endpoint: string; token_endpoint: string;
+export type AuthCfg = { mode: "token" | "master" } | { mode: "oidc"; client_id: string; scope: string; authorization_endpoint: string; token_endpoint: string;
   end_session_endpoint?: string | null; extra_params?: Record<string, string> };
 
 export function buildAuthUrl(cfg: Extract<AuthCfg, { mode: "oidc" }>, o: { redirectUri: string; state: string; challenge: string }): string {

@@ -11,13 +11,23 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.common.util import utcnow
 from services.master import db, poller
-from services.master.policy import sign, validate_policy
+from services.master.policy import sign, sign_payload, validate_policy
+from services.master.configuration import (
+    BOOTSTRAP_KEYS,
+    CATALOG as CONFIG_CATALOG,
+    SECRET_KEYS,
+    config_catalog,
+    decrypt_config,
+    encrypt_config,
+    public_config,
+    validate_config,
+)
 
 INTERVAL = int(os.getenv("MASTER_POLL_SECONDS", "30"))
 
@@ -72,6 +82,15 @@ class PolicyIn(BaseModel):
     note: str = ""
 
 
+class ClusterConfigurationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    settings: dict = Field(default_factory=dict)
+    secrets: dict[str, str] = Field(default_factory=dict)
+    clear_secrets: list[str] = Field(default_factory=list)
+    autoscaling: dict = Field(default_factory=dict)
+    connectors: list[dict] = Field(default_factory=list)
+
+
 def effective(s: Session, cluster_id: str) -> db.PolicyRow | None:
     for row in s.scalars(select(db.PolicyRow).order_by(db.PolicyRow.version.desc())):
         if "*" in row.targets or cluster_id in row.targets:
@@ -95,6 +114,16 @@ app = FastAPI(title="SOC Master (control plane)", version="1.0.0", lifespan=life
 @app.get("/api/v1/health")
 def health():
     return {"status": "ok", "role": "master"}
+
+
+@app.get("/api/v1/auth/config")
+def auth_config():
+    return {"mode": "master"}
+
+
+@app.get("/api/v1/me")
+def me(p=Depends(principal)):
+    return {"name": p[0], "role": p[1], "tenant_id": "*", "control_plane": "master"}
 
 
 # ---------------- registri cluster
@@ -123,6 +152,12 @@ def _fleet(s: Session) -> list[dict]:
                      "policy": {"target": target.version if target else 0, "applied": applied, "in_sync": (not target) or applied >= target.version},
                      "last_ok": st.ok_at.isoformat() if st and st.ok_at else None, "last_error": st.error if st else None,
                      "metrics": {k: (st.status or {}).get(k) for k in ("events_last_hour", "outbox_pending", "outbox_failed", "analysis_pending", "queue", "connectors", "kb")} if st else {}})
+        config = s.get(db.ClusterConfiguration, cl.id)
+        rows[-1]["configuration"] = {
+            "target": config.version if config else 0,
+            "applied": ((st.status or {}).get("runtime_config") or {}).get("version", 0) if st else 0,
+            "in_sync": (config.version if config else 0) <= (((st.status or {}).get("runtime_config") or {}).get("version", 0) if st else 0),
+        }
     return rows
 
 
@@ -144,6 +179,105 @@ def fleet(p=Depends(principal), s: Session = Depends(db.dep)):
 @app.post("/api/v1/poll")
 def poll_now(p=Depends(need_admin)):
     return {"reachable": poller.poll_all()}
+
+
+@app.get("/api/v1/config/catalog")
+def configuration_catalog(p=Depends(need_admin)):
+    return {"settings": config_catalog(), "bootstrap_keys": sorted(BOOTSTRAP_KEYS),
+            "autoscaling": [
+                {"key": "enabled", "label": "Autoscaling aktif", "kind": "boolean", "default": False},
+                {"key": "engine_min", "label": "Worker minimum", "kind": "number", "default": 2, "minimum": 1, "maximum": 1000},
+                {"key": "engine_max", "label": "Worker maksimum", "kind": "number", "default": 10, "minimum": 1, "maximum": 1000},
+                {"key": "engine_lag_target", "label": "Target antrean per worker", "kind": "number", "default": 100, "minimum": 1, "maximum": 10000},
+                {"key": "api_min", "label": "API minimum", "kind": "number", "default": 3, "minimum": 1, "maximum": 1000},
+                {"key": "api_max", "label": "API maksimum", "kind": "number", "default": 10, "minimum": 1, "maximum": 1000},
+                {"key": "api_cpu_target", "label": "Target CPU API (%)", "kind": "number", "default": 70, "minimum": 10, "maximum": 95},
+                {"key": "web_min", "label": "Web minimum", "kind": "number", "default": 2, "minimum": 1, "maximum": 1000},
+                {"key": "web_max", "label": "Web maksimum", "kind": "number", "default": 6, "minimum": 1, "maximum": 1000},
+                {"key": "web_cpu_target", "label": "Target CPU Web (%)", "kind": "number", "default": 70, "minimum": 10, "maximum": 95},
+            ]}
+
+
+def _cluster_or_404(s: Session, cluster_id: str) -> db.Cluster:
+    cluster = s.get(db.Cluster, cluster_id)
+    if not cluster:
+        raise HTTPException(404, "cluster tidak ditemukan")
+    return cluster
+
+
+def _stored_cluster_config(s: Session, cluster_id: str) -> dict:
+    row = s.get(db.ClusterConfiguration, cluster_id)
+    if row:
+        try:
+            return decrypt_config(row.encrypted_payload)
+        except RuntimeError as exc:
+            raise HTTPException(503, str(exc)) from exc
+    defaults = {key: item["default"] for key, item in CONFIG_CATALOG.items() if item.get("default") is not None and not item["secret"]}
+    return {"settings": defaults, "secrets": {}, "autoscaling": {}, "connectors": []}
+
+
+@app.get("/api/v1/clusters/{cluster_id}/configuration")
+def read_cluster_configuration(cluster_id: str, p=Depends(need_admin), s: Session = Depends(db.dep)):
+    _cluster_or_404(s, cluster_id)
+    config = _stored_cluster_config(s, cluster_id)
+    row = s.get(db.ClusterConfiguration, cluster_id)
+    return {"cluster_id": cluster_id, "version": row.version if row else 0, **public_config(config)}
+
+
+@app.put("/api/v1/clusters/{cluster_id}/configuration")
+def save_cluster_configuration(cluster_id: str, body: ClusterConfigurationIn, p=Depends(need_admin), s: Session = Depends(db.dep)):
+    _cluster_or_404(s, cluster_id)
+    previous = _stored_cluster_config(s, cluster_id)
+    if len(set(body.clear_secrets)) != len(body.clear_secrets):
+        raise HTTPException(422, "clear_secrets tidak boleh berisi duplikat")
+    if set(body.clear_secrets) - SECRET_KEYS:
+        raise HTTPException(422, "clear_secrets berisi nama secret yang tidak dikenal")
+    if set(body.clear_secrets) & body.secrets.keys():
+        raise HTTPException(422, "secret tidak dapat diatur dan dihapus pada permintaan yang sama")
+    secrets = {**previous.get("secrets", {}), **{key: value for key, value in body.secrets.items() if value}}
+    for key in body.clear_secrets:
+        secrets.pop(key, None)
+    candidate = body.model_dump(exclude={"clear_secrets"})
+    candidate["secrets"] = secrets
+    try:
+        config = validate_config(candidate)
+        encrypted = encrypt_config(config)
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(422 if isinstance(exc, ValueError) else 503, str(exc)) from exc
+    row = s.get(db.ClusterConfiguration, cluster_id)
+    if row is None:
+        row = db.ClusterConfiguration(cluster_id=cluster_id, version=0)
+        s.add(row)
+    row.version += 1
+    row.encrypted_payload = encrypted
+    row.issued_at = utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    row.updated_by = p[0]
+    audit(s, p[0], "cluster.configuration.publish", cluster_id, {"version": row.version, "connectors": len(config["connectors"])})
+    s.commit()
+    return {"cluster_id": cluster_id, "version": row.version, **public_config(config)}
+
+
+def _cluster_auth(s: Session, cluster_id: str, authorization: str):
+    cluster = s.get(db.Cluster, cluster_id)
+    token = authorization.removeprefix("Bearer ").strip()
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    if not cluster or not token or not hmac.compare_digest(token_hash, cluster.pull_token_hash):
+        raise HTTPException(401, "token cluster tidak valid")
+    return cluster
+
+
+@app.get("/api/v1/config/pull/{cluster_id}")
+def pull_cluster_configuration(cluster_id: str, authorization: str = Header(default=""),
+                               if_none_match: str = Header(default="0"), s: Session = Depends(db.dep)):
+    _cluster_auth(s, cluster_id, authorization)
+    row = s.get(db.ClusterConfiguration, cluster_id)
+    if not row or str(row.version) == if_none_match.strip('"'):
+        return Response(status_code=304)
+    try:
+        config = decrypt_config(row.encrypted_payload)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return sign_payload(_key(), cluster_id, row.version, config, row.issued_at)
 
 
 # ---------------- kebijakan
